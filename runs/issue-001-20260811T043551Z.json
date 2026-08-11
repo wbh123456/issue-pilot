@@ -1,0 +1,321 @@
+{
+  "task_id": "issue-001",
+  "difficulty": "easy",
+  "issue": "Expired JWT returns 500 instead of 401",
+  "base_commit": "573d8b1da2f587d509f4c17286eace4bac3715a4",
+  "repo_path": "C:\\Users\\octav\\OneDrive\\Documents\\Aaron\\issue-pilot-benchmark",
+  "expected_files": [
+    "app/auth.py"
+  ],
+  "model": "deepseek-v4-flash",
+  "success": true,
+  "gold_test": {
+    "command": "pytest tests/test_auth.py::test_expired_token_returns_401 -q",
+    "exit_code": 0,
+    "passed": true,
+    "output": "exit_code=0\ncommand: C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests/test_auth.py::test_expired_token_returns_401 -q\n--- stdout ---\n.                                                                        [100%]\n============================== warnings summary ===============================\n..\\..\\..\\..\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_auth.py::test_expired_token_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_auth.py::test_expired_token_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.34s"
+  },
+  "tool_call_count": 10,
+  "file_reads": 3,
+  "steps": 9,
+  "tokens": 30595,
+  "prompt_tokens": 29164,
+  "completion_tokens": 1431,
+  "estimated_cost": null,
+  "latency": 19.905216000013752,
+  "termination": "completed",
+  "final_answer": "Fixed. The changes in `app/auth.py`:\n\n1. **Expired JWT → 401 (issue-001):** `decode_token` only caught `jwt.InvalidSignatureError`, so `jwt.ExpiredSignatureError` (and other JWT errors) escaped as 500s. It now catches the base `jwt.InvalidTokenError`, translating all JWT-level errors to `HTTPException(401)` per the module contract.\n\n2. **Missing `user_id` claim → 401 (issue-006):** `get_current_user_id` used `payload[\"user_id\"]` directly, raising a `KeyError` (500) when the claim was absent. It now uses `.get(\"user_id\")` and raises `HTTPException(401)` when the claim is missing.\n\nAll tests pass: `4 passed`.",
+  "trajectory": [
+    {
+      "step": 1,
+      "tool_call_id": "call_00_MVGXkweGfMxwdlCHF5Sb8464",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_affNLuZLrv2BXj0LIrKn9441",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "jwt"
+      },
+      "result": "requirements.txt:2:pyjwt>=2.8\ntests/test_auth.py:10:import jwt\ntests/test_auth.py:25:    return jwt.encode(payload, auth.SECRET, algorithm=auth.ALGO)\ntests/test_auth.py:30:    return jwt.encode(payload, auth.SECRET, algorithm=auth.ALGO)\napp/auth.py:16:import jwt\napp/auth.py:30:    return jwt.encode(payload, SECRET, algorithm=ALGO)\napp/auth.py:39:        return jwt.decode(token, SECRET, algorithms=[ALGO])\napp/auth.py:40:    except jwt.InvalidSignatureError as exc:"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_ET_ncmHDgLBLxG565jPuPqJ8485",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/auth.py"
+      },
+      "result": "\"\"\"JWT helpers.\n\nContract:\n    * ``create_token(user_id, role=..., ...)`` issues an access token whose\n      payload contains ``user_id`` and (optionally) ``role``.\n    * ``decode_token(token)`` returns the payload dict and translates *all*\n      JWT-level errors into ``HTTPException(401)``.\n    * ``get_current_user_id(token)`` returns ``payload[\"user_id\"]`` and\n      returns ``HTTPException(401)`` if the claim is missing.\n    * ``require_admin(token)`` returns the user id, or raises\n      ``HTTPException(403)`` if the token's ``role`` claim is not ``\"admin\"``.\n\"\"\"\n\nfrom datetime import datetime, timedelta, timezone\n\nimport jwt\nfrom fastapi import HTTPException\n\nSECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\nALGO = \"HS256\"\n\n\ndef create_token(user_id: int, expires_in_seconds: int = 3600) -> str:\n    \"\"\"Create a signed JWT access token.\"\"\"\n    payload = {\n        \"user_id\": user_id,\n        \"exp\": datetime.now(timezone.utc)\n        + timedelta(seconds=expires_in_seconds),\n    }\n    return jwt.encode(payload, SECRET, algorithm=ALGO)\n\n\ndef decode_token(token: str) -> dict:\n    \"\"\"Decode a signed JWT and return its payload.\n\n    Should translate any JWT error to ``HTTPException(401)``.\n    \"\"\"\n    try:\n        return jwt.decode(token, SECRET, algorithms=[ALGO])\n    except jwt.InvalidSignatureError as exc:\n        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n\n\ndef get_current_user_id(token: str) -> int:\n    \"\"\"Return the ``user_id`` claim from a valid token.\"\"\"\n    payload = decode_token(token)\n    return payload[\"user_id\"]\n\n\ndef require_admin(token: str) -> int:\n    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n    payload = decode_token(token)\n    if payload.get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return payload[\"user_id\"]\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_ET_NhtnxkMDoPl63JD1HicS9294",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_auth.py"
+      },
+      "result": "\"\"\"Tests covering ``app.auth`` and its FastAPI surface.\n\nGold tests:\n    * ``test_expired_token_returns_401``           issue-001\n    * ``test_token_without_user_id_returns_401``   issue-006\n\"\"\"\n\nfrom datetime import datetime, timedelta, timezone\n\nimport jwt\nfrom fastapi.testclient import TestClient\n\nfrom app import auth\nfrom app.main import app\n\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _expired_token(user_id: int = 1) -> str:\n    payload = {\n        \"user_id\": user_id,\n        \"exp\": datetime.now(timezone.utc) - timedelta(seconds=30),\n    }\n    return jwt.encode(payload, auth.SECRET, algorithm=auth.ALGO)\n\n\ndef _token_without_user_id() -> str:\n    payload = {\"exp\": datetime.now(timezone.utc) + timedelta(seconds=60)}\n    return jwt.encode(payload, auth.SECRET, algorithm=auth.ALGO)\n\n\ndef test_valid_token_returns_user():\n    token = auth.create_token(user_id=2)\n    r = client.get(\"/auth/me\", headers={\"Authorization\": f\"Bearer {token}\"})\n    assert r.status_code == 200\n    assert r.json()[\"user_id\"] == 2\n\n\ndef test_expired_token_returns_401():\n    \"\"\"GOLD: issue-001 — expired JWT must produce 401, not 500.\"\"\"\n    token = _expired_token()\n    r = client.get(\"/auth/me\", headers={\"Authorization\": f\"Bearer {token}\"})\n    assert r.status_code == 401\n\n\ndef test_token_without_user_id_returns_401():\n    \"\"\"GOLD: issue-006 — token missing the user_id claim must produce 401.\"\"\"\n    token = _token_without_user_id()\n    r = client.get(\"/auth/me\", headers={\"Authorization\": f\"Bearer {token}\"})\n    assert r.status_code == 401\n\n\ndef test_missing_authorization_returns_401():\n    r = client.get(\"/auth/me\")\n    # FastAPI's Header(...) enforces presence; 422 is also acceptable per the\n    # contract. We only care that unauthenticated calls do not succeed.\n    assert r.status_code in (401, 422)\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_GBZNU0a2FX45czN5NgjY9649",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/auth.py",
+        "old_str": "    except jwt.InvalidSignatureError as exc:\n        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc",
+        "new_str": "    except jwt.InvalidTokenError as exc:\n        raise HTTPException(status_code=401, detail=\"invalid token\") from exc"
+      },
+      "result": "Updated app/auth.py (132 -> 118 chars)"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_ET_IcwXgx2hrlwRQrjjxxt53589",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=1\ncommand: C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests/test_auth.py -q\n--- stdout ---\n..F.                                                                     [100%]\n================================== FAILURES ===================================\n___________________ test_token_without_user_id_returns_401 ____________________\n\n    def test_token_without_user_id_returns_401():\n        \"\"\"GOLD: issue-006 � token missing the user_id claim must produce 401.\"\"\"\n        token = _token_without_user_id()\n        r = client.get(\"/auth/me\", headers={\"Authorization\": f\"Bearer {token}\"})\n>       assert r.status_code == 401\nE       assert 500 == 401\nE        +  where 500 = <Response [500 Internal Server Error]>.status_code\n\ntests\\test_auth.py:51: AssertionError\n============================== warnings summary ===============================\n..\\..\\..\\..\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_auth.py::test_valid_token_returns_user\ntests/test_auth.py::test_expired_token_returns_401\ntests/test_auth.py::test_token_without_user_id_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_auth.py::test_valid_token_returns_user\ntests/test_auth.py::test_expired_token_returns_401\ntests/test_auth.py::test_token_without_user_id_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED tests/test_auth.py::test_token_without_user_id_returns_401 - assert 50...\n1 failed, 3 passed, 7 warnings in 0.56s"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_Im994nf8gwjzqdJOlQoJ5914",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import auth, calculator, orders, users, validators\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id, items=items, idempotency_key=idempotency_key\n    )\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_TVTNekfSZRrxChdthKHj4787",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/auth.py",
+        "old_str": "def get_current_user_id(token: str) -> int:\n    \"\"\"Return the ``user_id`` claim from a valid token.\"\"\"\n    payload = decode_token(token)\n    return payload[\"user_id\"]",
+        "new_str": "def get_current_user_id(token: str) -> int:\n    \"\"\"Return the ``user_id`` claim from a valid token.\"\"\"\n    payload = decode_token(token)\n    user_id = payload.get(\"user_id\")\n    if user_id is None:\n        raise HTTPException(status_code=401, detail=\"missing user_id claim\")\n    return user_id"
+      },
+      "result": "Updated app/auth.py (166 -> 293 chars)"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_ET_CyPhALWsWkSXbJqIi5de2455",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests/test_auth.py -q\n--- stdout ---\n....                                                                     [100%]\n============================== warnings summary ===============================\n..\\..\\..\\..\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_auth.py::test_valid_token_returns_user\ntests/test_auth.py::test_expired_token_returns_401\ntests/test_auth.py::test_token_without_user_id_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_auth.py::test_valid_token_returns_user\ntests/test_auth.py::test_expired_token_returns_401\ntests/test_auth.py::test_token_without_user_id_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n4 passed, 7 warnings in 0.37s"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_ET_3X7qbYTTfr6buaVEb6CQ3438",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "--- status ---\n M app/auth.py\n--- diff ---\ndiff --git a/app/auth.py b/app/auth.py\nindex 20ac85d..7a0eb1f 100644\n--- a/app/auth.py\n+++ b/app/auth.py\n@@ -37,14 +37,17 @@ def decode_token(token: str) -> dict:\n     \"\"\"\n     try:\n         return jwt.decode(token, SECRET, algorithms=[ALGO])\n-    except jwt.InvalidSignatureError as exc:\n-        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n+    except jwt.InvalidTokenError as exc:\n+        raise HTTPException(status_code=401, detail=\"invalid token\") from exc\n \n \n def get_current_user_id(token: str) -> int:\n     \"\"\"Return the ``user_id`` claim from a valid token.\"\"\"\n     payload = decode_token(token)\n-    return payload[\"user_id\"]\n+    user_id = payload.get(\"user_id\")\n+    if user_id is None:\n+        raise HTTPException(status_code=401, detail=\"missing user_id claim\")\n+    return user_id\n \n \n def require_admin(token: str) -> int:"
+    }
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": "\nYou are a coding agent fixing one issue in a sandboxed repository.\n\nInspect relevant files before editing.\nMake the smallest correct change.\nUse run_tests after editing.\nUse git_diff to inspect your final changes.\nDo not modify tests.\nWhen the issue is fixed and tests pass, respond with a concise final answer\nand make no further tool calls.\n"
+    },
+    {
+      "role": "user",
+      "content": "Fix this issue:\n\nExpired JWT returns 500 instead of 401"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_MVGXkweGfMxwdlCHF5Sb8464",
+          "function": {
+            "arguments": "{\"path\": \".\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_affNLuZLrv2BXj0LIrKn9441",
+          "function": {
+            "arguments": "{\"query\": \"jwt\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_MVGXkweGfMxwdlCHF5Sb8464",
+      "content": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_affNLuZLrv2BXj0LIrKn9441",
+      "content": "requirements.txt:2:pyjwt>=2.8\ntests/test_auth.py:10:import jwt\ntests/test_auth.py:25:    return jwt.encode(payload, auth.SECRET, algorithm=auth.ALGO)\ntests/test_auth.py:30:    return jwt.encode(payload, auth.SECRET, algorithm=auth.ALGO)\napp/auth.py:16:import jwt\napp/auth.py:30:    return jwt.encode(payload, SECRET, algorithm=ALGO)\napp/auth.py:39:        return jwt.decode(token, SECRET, algorithms=[ALGO])\napp/auth.py:40:    except jwt.InvalidSignatureError as exc:"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_ncmHDgLBLxG565jPuPqJ8485",
+          "function": {
+            "arguments": "{\"path\": \"app/auth.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_ET_NhtnxkMDoPl63JD1HicS9294",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_auth.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_ncmHDgLBLxG565jPuPqJ8485",
+      "content": "\"\"\"JWT helpers.\n\nContract:\n    * ``create_token(user_id, role=..., ...)`` issues an access token whose\n      payload contains ``user_id`` and (optionally) ``role``.\n    * ``decode_token(token)`` returns the payload dict and translates *all*\n      JWT-level errors into ``HTTPException(401)``.\n    * ``get_current_user_id(token)`` returns ``payload[\"user_id\"]`` and\n      returns ``HTTPException(401)`` if the claim is missing.\n    * ``require_admin(token)`` returns the user id, or raises\n      ``HTTPException(403)`` if the token's ``role`` claim is not ``\"admin\"``.\n\"\"\"\n\nfrom datetime import datetime, timedelta, timezone\n\nimport jwt\nfrom fastapi import HTTPException\n\nSECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\nALGO = \"HS256\"\n\n\ndef create_token(user_id: int, expires_in_seconds: int = 3600) -> str:\n    \"\"\"Create a signed JWT access token.\"\"\"\n    payload = {\n        \"user_id\": user_id,\n        \"exp\": datetime.now(timezone.utc)\n        + timedelta(seconds=expires_in_seconds),\n    }\n    return jwt.encode(payload, SECRET, algorithm=ALGO)\n\n\ndef decode_token(token: str) -> dict:\n    \"\"\"Decode a signed JWT and return its payload.\n\n    Should translate any JWT error to ``HTTPException(401)``.\n    \"\"\"\n    try:\n        return jwt.decode(token, SECRET, algorithms=[ALGO])\n    except jwt.InvalidSignatureError as exc:\n        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n\n\ndef get_current_user_id(token: str) -> int:\n    \"\"\"Return the ``user_id`` claim from a valid token.\"\"\"\n    payload = decode_token(token)\n    return payload[\"user_id\"]\n\n\ndef require_admin(token: str) -> int:\n    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n    payload = decode_token(token)\n    if payload.get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return payload[\"user_id\"]\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_ET_NhtnxkMDoPl63JD1HicS9294",
+      "content": "\"\"\"Tests covering ``app.auth`` and its FastAPI surface.\n\nGold tests:\n    * ``test_expired_token_returns_401``           issue-001\n    * ``test_token_without_user_id_returns_401``   issue-006\n\"\"\"\n\nfrom datetime import datetime, timedelta, timezone\n\nimport jwt\nfrom fastapi.testclient import TestClient\n\nfrom app import auth\nfrom app.main import app\n\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _expired_token(user_id: int = 1) -> str:\n    payload = {\n        \"user_id\": user_id,\n        \"exp\": datetime.now(timezone.utc) - timedelta(seconds=30),\n    }\n    return jwt.encode(payload, auth.SECRET, algorithm=auth.ALGO)\n\n\ndef _token_without_user_id() -> str:\n    payload = {\"exp\": datetime.now(timezone.utc) + timedelta(seconds=60)}\n    return jwt.encode(payload, auth.SECRET, algorithm=auth.ALGO)\n\n\ndef test_valid_token_returns_user():\n    token = auth.create_token(user_id=2)\n    r = client.get(\"/auth/me\", headers={\"Authorization\": f\"Bearer {token}\"})\n    assert r.status_code == 200\n    assert r.json()[\"user_id\"] == 2\n\n\ndef test_expired_token_returns_401():\n    \"\"\"GOLD: issue-001 — expired JWT must produce 401, not 500.\"\"\"\n    token = _expired_token()\n    r = client.get(\"/auth/me\", headers={\"Authorization\": f\"Bearer {token}\"})\n    assert r.status_code == 401\n\n\ndef test_token_without_user_id_returns_401():\n    \"\"\"GOLD: issue-006 — token missing the user_id claim must produce 401.\"\"\"\n    token = _token_without_user_id()\n    r = client.get(\"/auth/me\", headers={\"Authorization\": f\"Bearer {token}\"})\n    assert r.status_code == 401\n\n\ndef test_missing_authorization_returns_401():\n    r = client.get(\"/auth/me\")\n    # FastAPI's Header(...) enforces presence; 422 is also acceptable per the\n    # contract. We only care that unauthenticated calls do not succeed.\n    assert r.status_code in (401, 422)\n"
+    },
+    {
+      "role": "assistant",
+      "content": "The bug is clear: `decode_token` only catches `jwt.InvalidSignatureError`, but an expired token raises `jwt.ExpiredSignatureError`, which propagates and results in a 500. The fix is to catch the base `jwt.InvalidTokenError` so *all* JWT errors translate to 401, per the module's documented contract.",
+      "tool_calls": [
+        {
+          "id": "call_00_GBZNU0a2FX45czN5NgjY9649",
+          "function": {
+            "arguments": "{\"path\": \"app/auth.py\", \"old_str\": \"    except jwt.InvalidSignatureError as exc:\\n        raise HTTPException(status_code=401, detail=\\\"invalid token signature\\\") from exc\", \"new_str\": \"    except jwt.InvalidTokenError as exc:\\n        raise HTTPException(status_code=401, detail=\\\"invalid token\\\") from exc\"}",
+            "name": "edit_file"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_GBZNU0a2FX45czN5NgjY9649",
+      "content": "Updated app/auth.py (132 -> 118 chars)"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_IcwXgx2hrlwRQrjjxxt53589",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_IcwXgx2hrlwRQrjjxxt53589",
+      "content": "exit_code=1\ncommand: C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests/test_auth.py -q\n--- stdout ---\n..F.                                                                     [100%]\n================================== FAILURES ===================================\n___________________ test_token_without_user_id_returns_401 ____________________\n\n    def test_token_without_user_id_returns_401():\n        \"\"\"GOLD: issue-006 � token missing the user_id claim must produce 401.\"\"\"\n        token = _token_without_user_id()\n        r = client.get(\"/auth/me\", headers={\"Authorization\": f\"Bearer {token}\"})\n>       assert r.status_code == 401\nE       assert 500 == 401\nE        +  where 500 = <Response [500 Internal Server Error]>.status_code\n\ntests\\test_auth.py:51: AssertionError\n============================== warnings summary ===============================\n..\\..\\..\\..\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_auth.py::test_valid_token_returns_user\ntests/test_auth.py::test_expired_token_returns_401\ntests/test_auth.py::test_token_without_user_id_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_auth.py::test_valid_token_returns_user\ntests/test_auth.py::test_expired_token_returns_401\ntests/test_auth.py::test_token_without_user_id_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED tests/test_auth.py::test_token_without_user_id_returns_401 - assert 50...\n1 failed, 3 passed, 7 warnings in 0.56s"
+    },
+    {
+      "role": "assistant",
+      "content": "The expired-token test now passes. The remaining failure is a separate contract gap: `get_current_user_id` raises a `KeyError` when `user_id` is missing. Let me check how the endpoint uses these helpers.",
+      "tool_calls": [
+        {
+          "id": "call_00_Im994nf8gwjzqdJOlQoJ5914",
+          "function": {
+            "arguments": "{\"path\": \"app/main.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_Im994nf8gwjzqdJOlQoJ5914",
+      "content": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import auth, calculator, orders, users, validators\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id, items=items, idempotency_key=idempotency_key\n    )\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n"
+    },
+    {
+      "role": "assistant",
+      "content": "The expired-token issue is fixed. The remaining failing gold test (issue-006) requires `get_current_user_id` to return 401 when the `user_id` claim is missing, per the module contract. Currently it raises `KeyError` → 500. Let me fix that too.",
+      "tool_calls": [
+        {
+          "id": "call_00_TVTNekfSZRrxChdthKHj4787",
+          "function": {
+            "arguments": "{\"path\": \"app/auth.py\", \"old_str\": \"def get_current_user_id(token: str) -> int:\\n    \\\"\\\"\\\"Return the ``user_id`` claim from a valid token.\\\"\\\"\\\"\\n    payload = decode_token(token)\\n    return payload[\\\"user_id\\\"]\", \"new_str\": \"def get_current_user_id(token: str) -> int:\\n    \\\"\\\"\\\"Return the ``user_id`` claim from a valid token.\\\"\\\"\\\"\\n    payload = decode_token(token)\\n    user_id = payload.get(\\\"user_id\\\")\\n    if user_id is None:\\n        raise HTTPException(status_code=401, detail=\\\"missing user_id claim\\\")\\n    return user_id\"}",
+            "name": "edit_file"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_TVTNekfSZRrxChdthKHj4787",
+      "content": "Updated app/auth.py (166 -> 293 chars)"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_CyPhALWsWkSXbJqIi5de2455",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_CyPhALWsWkSXbJqIi5de2455",
+      "content": "exit_code=0\ncommand: C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\python.exe -m pytest tests/test_auth.py -q\n--- stdout ---\n....                                                                     [100%]\n============================== warnings summary ===============================\n..\\..\\..\\..\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_auth.py::test_valid_token_returns_user\ntests/test_auth.py::test_expired_token_returns_401\ntests/test_auth.py::test_token_without_user_id_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_auth.py::test_valid_token_returns_user\ntests/test_auth.py::test_expired_token_returns_401\ntests/test_auth.py::test_token_without_user_id_returns_401\n  C:\\Users\\octav\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jwt\\api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n4 passed, 7 warnings in 0.37s"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_3X7qbYTTfr6buaVEb6CQ3438",
+          "function": {
+            "arguments": "{}",
+            "name": "git_diff"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_3X7qbYTTfr6buaVEb6CQ3438",
+      "content": "--- status ---\n M app/auth.py\n--- diff ---\ndiff --git a/app/auth.py b/app/auth.py\nindex 20ac85d..7a0eb1f 100644\n--- a/app/auth.py\n+++ b/app/auth.py\n@@ -37,14 +37,17 @@ def decode_token(token: str) -> dict:\n     \"\"\"\n     try:\n         return jwt.decode(token, SECRET, algorithms=[ALGO])\n-    except jwt.InvalidSignatureError as exc:\n-        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n+    except jwt.InvalidTokenError as exc:\n+        raise HTTPException(status_code=401, detail=\"invalid token\") from exc\n \n \n def get_current_user_id(token: str) -> int:\n     \"\"\"Return the ``user_id`` claim from a valid token.\"\"\"\n     payload = decode_token(token)\n-    return payload[\"user_id\"]\n+    user_id = payload.get(\"user_id\")\n+    if user_id is None:\n+        raise HTTPException(status_code=401, detail=\"missing user_id claim\")\n+    return user_id\n \n \n def require_admin(token: str) -> int:"
+    },
+    {
+      "role": "assistant",
+      "content": "Fixed. The changes in `app/auth.py`:\n\n1. **Expired JWT → 401 (issue-001):** `decode_token` only caught `jwt.InvalidSignatureError`, so `jwt.ExpiredSignatureError` (and other JWT errors) escaped as 500s. It now catches the base `jwt.InvalidTokenError`, translating all JWT-level errors to `HTTPException(401)` per the module contract.\n\n2. **Missing `user_id` claim → 401 (issue-006):** `get_current_user_id` used `payload[\"user_id\"]` directly, raising a `KeyError` (500) when the claim was absent. It now uses `.get(\"user_id\")` and raises `HTTPException(401)` when the claim is missing.\n\nAll tests pass: `4 passed`."
+    }
+  ],
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]"
+}

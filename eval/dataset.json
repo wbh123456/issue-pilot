@@ -1,0 +1,82 @@
+[
+  {
+    "id": "issue-001",
+    "difficulty": "easy",
+    "issue": "Expired JWT returns 500 instead of 401",
+    "base_commit": "573d8b1da2f587d509f4c17286eace4bac3715a4",
+    "repo_path": "../issue-pilot-benchmark",
+    "expected_files": ["app/auth.py"],
+    "test_command": "pytest tests/test_auth.py -q",
+    "gold_test": "test_expired_token_returns_401"
+  },
+  {
+    "id": "issue-002",
+    "difficulty": "easy",
+    "issue": "sum_inclusive is off-by-one and excludes the end value",
+    "base_commit": "573d8b1da2f587d509f4c17286eace4bac3715a4",
+    "repo_path": "../issue-pilot-benchmark",
+    "expected_files": ["app/calculator.py"],
+    "test_command": "pytest tests/test_calculator.py -q",
+    "gold_test": "test_sum_inclusive_basic"
+  },
+  {
+    "id": "issue-003",
+    "difficulty": "easy",
+    "issue": "Empty email string is incorrectly treated as valid",
+    "base_commit": "573d8b1da2f587d509f4c17286eace4bac3715a4",
+    "repo_path": "../issue-pilot-benchmark",
+    "expected_files": ["app/validators.py"],
+    "test_command": "pytest tests/test_validators.py -q",
+    "gold_test": "test_empty_email_rejected"
+  },
+  {
+    "id": "issue-004",
+    "difficulty": "medium",
+    "issue": "Looking up a missing user returns 500 instead of 404",
+    "base_commit": "573d8b1da2f587d509f4c17286eace4bac3715a4",
+    "repo_path": "../issue-pilot-benchmark",
+    "expected_files": ["app/users.py"],
+    "test_command": "pytest tests/test_users.py -q",
+    "gold_test": "test_missing_user_returns_404"
+  },
+  {
+    "id": "issue-005",
+    "difficulty": "medium",
+    "issue": "Order total calculation ignores item quantity",
+    "base_commit": "573d8b1da2f587d509f4c17286eace4bac3715a4",
+    "repo_path": "../issue-pilot-benchmark",
+    "expected_files": ["app/orders.py"],
+    "test_command": "pytest tests/test_orders.py -q",
+    "gold_test": "test_calculate_total_respects_quantity"
+  },
+  {
+    "id": "issue-006",
+    "difficulty": "medium",
+    "issue": "Token missing the user_id claim returns 500 instead of 401",
+    "base_commit": "573d8b1da2f587d509f4c17286eace4bac3715a4",
+    "repo_path": "../issue-pilot-benchmark",
+    "expected_files": ["app/auth.py"],
+    "test_command": "pytest tests/test_auth.py -q",
+    "gold_test": "test_token_without_user_id_returns_401"
+  },
+  {
+    "id": "issue-007",
+    "difficulty": "hard",
+    "issue": "Admin login token lacks role claim, so role-gated endpoints return 403",
+    "base_commit": "573d8b1da2f587d509f4c17286eace4bac3715a4",
+    "repo_path": "../issue-pilot-benchmark",
+    "expected_files": ["app/users.py", "app/auth.py"],
+    "test_command": "pytest tests/test_users.py -q",
+    "gold_test": "test_admin_can_promote_user"
+  },
+  {
+    "id": "issue-008",
+    "difficulty": "hard",
+    "issue": "Repeated Idempotency-Key creates duplicate orders instead of returning the original",
+    "base_commit": "573d8b1da2f587d509f4c17286eace4bac3715a4",
+    "repo_path": "../issue-pilot-benchmark",
+    "expected_files": ["app/orders.py"],
+    "test_command": "pytest tests/test_orders.py -q",
+    "gold_test": "test_duplicate_idempotency_key_returns_same_order"
+  }
+]
