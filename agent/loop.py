@@ -23,10 +23,21 @@ def run_agent(
     test_command: str,
     model: str = "deepseek-v4-flash",
     max_steps: int = 15,
+    workflow_context: str | None = None,
 ) -> dict:
+    """Run the V0 ReAct tool loop.
+
+    ``workflow_context`` is an optional V1-only seam: when provided, it is
+    appended to the user message. Default ``None`` keeps the V0 prompt and
+    return shape unchanged for ablation comparisons.
+    """
+    user_content = f"Fix this issue:\n\n{issue}"
+    if workflow_context:
+        user_content += f"\n\nWorkflow context:\n{workflow_context}"
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Fix this issue:\n\n{issue}"},
+        {"role": "user", "content": user_content},
     ]
 
     trajectory = []
