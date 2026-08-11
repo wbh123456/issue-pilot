@@ -2,3 +2,6 @@ openai
 python-dotenv
 rich
 pytest
+langgraph
+langchain-core
+pydantic
