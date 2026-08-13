@@ -123,6 +123,22 @@ class TestListAndRead:
         finally:
             outside.unlink(missing_ok=True)
 
+    def test_gold_staging_dir_is_invisible(self, repo: Path) -> None:
+        gold = repo / "tests" / "_gold"
+        gold.mkdir(parents=True)
+        (gold / "test_issue_001.py").write_text(
+            "def test_expired_token_returns_401():\n    assert True\n",
+            encoding="utf-8",
+        )
+        listed = list_files(repo, "tests")
+        assert "_gold" not in listed
+        with pytest.raises(PermissionError, match="not visible"):
+            read_file(repo, "tests/_gold/test_issue_001.py")
+        grep_out = grep_code(repo, "test_expired_token_returns_401")
+        assert "_gold" not in grep_out
+        assert "test_expired_token_returns_401" not in grep_out
+
+
 class TestGrep:
     def test_grep_finds_match(self, repo: Path) -> None:
         out = grep_code(repo, "greet")
@@ -284,6 +300,26 @@ class TestGitDiff:
     def test_requires_sandbox(self, repo: Path) -> None:
         with pytest.raises(RuntimeError, match="host execution is not allowed"):
             git_diff(repo, sandbox=None)  # type: ignore[arg-type]
+
+    def test_nonzero_exit_is_one_line_without_usage_dump(self, repo: Path) -> None:
+        usage = (
+            "warning: Not a git repository. Use --no-index to compare two paths\n"
+            "usage: git diff --no-index [<options>] <path> <path>\n"
+            + ("x" * 4000)
+        )
+        sandbox = ScriptedSandbox(
+            [
+                CommandResult(["git", "diff", "HEAD"], 129, "", usage),
+                CommandResult(["git", "status", "--short"], 0, "", ""),
+            ]
+        )
+        out = git_diff(repo, sandbox=sandbox)
+        assert out.startswith("Error: git diff failed (exit 129):")
+        assert "Not a git repository" in out
+        assert "\n" not in out
+        assert "usage:" not in out
+        assert "xxxx" not in out
+        assert len(out) < 300
 
 
 class TestExecuteToolSandbox:

@@ -22,6 +22,8 @@ _SKIP_DIR_NAMES = {
     ".mypy_cache",
     ".ruff_cache",
     "node_modules",
+    "_gold",
+    "_app_bak",
 }
 
 __all__ = [
@@ -53,11 +55,15 @@ def resolve_in_repo(repo_path: str | Path, rel_path: str = ".") -> Path:
     # resolve() follows symlinks; relative_to rejects anything outside root.
     target = (root / candidate).resolve()
     try:
-        target.relative_to(root)
+        rel = target.relative_to(root)
     except ValueError as exc:
         raise PermissionError(
             f"path escapes sandbox root: {rel_path!r} (repo={root})"
         ) from exc
+    if any(part == "_gold" for part in rel.parts):
+        raise PermissionError(
+            f"path is not visible to agent tools: {rel_path!r}"
+        )
     return target
 
 

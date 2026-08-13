@@ -1,0 +1,553 @@
+{
+  "task_id": "issue-009",
+  "harness_version": "v0",
+  "difficulty": "hard",
+  "split": "hard",
+  "issue": "Ordering 50 widgets when 3 are in stock crashes with 500",
+  "base_commit": "fcf311939df40bf715a35282c1575a0da5c71763",
+  "repo_path": "C:\\Users\\Aaron\\issue-pilot-benchmark",
+  "expected_files": [
+    "app/inventory.py",
+    "app/orders.py"
+  ],
+  "model": "deepseek-v4-flash",
+  "success": true,
+  "gold_test": {
+    "command": "pytest tests/_gold/test_issue_009.py::test_out_of_stock_returns_409_and_does_not_decrement -q",
+    "exit_code": 0,
+    "passed": true,
+    "output": "exit_code=0\ncommand: pytest tests/_gold/test_issue_009.py::test_out_of_stock_returns_409_and_does_not_decrement -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/_gold/test_issue_009.py::test_out_of_stock_returns_409_and_does_not_decrement\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/_gold/test_issue_009.py::test_out_of_stock_returns_409_and_does_not_decrement\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.59s"
+  },
+  "tool_call_count": 19,
+  "file_reads": 12,
+  "steps": 11,
+  "llm_calls": 11,
+  "tokens": 72568,
+  "prompt_tokens": 68097,
+  "completion_tokens": 4471,
+  "estimated_cost": null,
+  "latency": 46.26864930000738,
+  "termination": "completed",
+  "final_answer": "The fix is complete and the test passes.\n\n## Summary\n\n**Root cause:** `app/inventory.py`'s `allocate_bin()` indexed `bins[\"slots\"][qty - 1]` with the requested quantity. Ordering 50 widgets when the seeded bin has only 3 slots raised an `IndexError`, which surfaced as an unhandled 500 error. It also manually decremented stock without any availability check.\n\n**Fix:** `allocate_bin()` now takes stock through the existing `inventory.reserve()` helper, which validates availability and raises a proper HTTP 409 (\"out of stock\") when the requested quantity exceeds stock — matching the module's documented intent (\"Checkout is supposed to take stock through `reserve` (conflict → 409)\"). The buggy slot indexing and duplicate manual decrement were removed, so stock is no longer driven negative and oversized orders no longer crash with 500.",
+  "trajectory": [
+    {
+      "step": 1,
+      "tool_call_id": "call_00_0PfclDGbKG15tzX2M8o32750",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "_app_bak/\napp/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_38xoEe3J1JMnuv1ANc7r0958",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "widget"
+      },
+      "result": "app/inventory.py:10:    \"widget\": 3,\napp/inventory.py:18:    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\napp/inventory.py:47:        sku = item.get(\"sku\") or \"widget\"\napp/main.py:18:    sku: str = \"widget\"\ntests/test_inventory_orders.py:19:def test_ordering_more_widgets_than_stock_does_not_crash():\ntests/test_inventory_orders.py:23:        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\ntests/test_orders_coupon_refund.py:24:            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\ntests/test_orders_idempotency.py:25:    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_z799rgppi3VRNm4deAsY2951",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import auth, calculator, inventory, orders, users, validators\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_Q3lJ7XEVL54myf4byCD55285",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/inventory.py"
+      },
+      "result": "\"\"\"Warehouse stock and bin allocation.\n\nCheckout is supposed to take stock through ``reserve`` (conflict → 409).\n``allocate_bin`` is a leftover picking helper still referenced by orders.\n\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\n# Slot lists are used by the picker; length happens to match seeded stock.\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\n\n    Oversized quantities index past ``slots`` and raise IndexError (HTTP 500)\n    instead of a 409 from ``reserve``.\n    \"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_02_FmVxhAfJoGmCGWe3NcS88861",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_inventory_orders.py"
+      },
+      "result": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_gCksfyIS8VLGCC6ysxHz8361",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    return order\n\n\ndef refund_order(order_id: int) -> dict:\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_01_s8yVmpk4MsOcUqJP1DzJ6293",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_coupon_refund.py"
+      },
+      "result": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_02_XTmvjLNRiTOrqnoSPrkS2852",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_idempotency.py"
+      },
+      "result": "\"\"\"Repeated checkout keys for a single shopper.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_alice_replayed_checkout_key_is_not_a_second_order():\n    token = _login_alice()\n    headers = {\n        \"Authorization\": f\"Bearer {token}\",\n        \"Idempotency-Key\": \"abc-123\",\n    }\n    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}\n    r1 = client.post(\"/orders\", json=body, headers=headers)\n    r2 = client.post(\"/orders\", json=body, headers=headers)\n    assert r1.status_code == 200 and r2.status_code == 200\n    assert r1.json()[\"id\"] == r2.json()[\"id\"]\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_otUxvK6kKL2G98yj1jhU0460",
+      "tool": "read_file",
+      "arguments": {
+        "path": "conftest.py"
+      },
+      "result": "\"\"\"Pytest bootstrap: make the repository root importable.\"\"\"\n\nfrom __future__ import annotations\n\nimport pathlib\nimport sys\n\nimport pytest\n\n_ROOT = pathlib.Path(__file__).resolve().parent\nif str(_ROOT) not in sys.path:\n    sys.path.insert(0, str(_ROOT))\n\n\n@pytest.fixture(autouse=True)\ndef _reset_stores() -> None:\n    from app import inventory, orders, payments, users\n\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n    yield\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_01_g0RXd0wlo8KpJTS4K4xG9047",
+      "tool": "list_files",
+      "arguments": {
+        "path": "tests"
+      },
+      "result": "tests/__init__.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_inventory_orders.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_02_4S2eh2tBBoqXaSUMkSDt5216",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/payments.py"
+      },
+      "result": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_SnH32weNhDFJbY8A7Vr19890",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_total.py"
+      },
+      "result": "\"\"\"Order line totals.\"\"\"\n\nfrom app import orders\n\n\ndef test_line_total_is_not_unit_prices_only():\n    total = orders.calculate_total(\n        [\n            {\"price\": 10.0, \"qty\": 3},\n            {\"price\": 2.5, \"qty\": 2},\n        ]\n    )\n    # Summing unit prices and ignoring qty yields 12.5.\n    assert total != 12.5\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_01_2yYgRVsoT7vfTrPCLcLg4869",
+      "tool": "read_file",
+      "arguments": {
+        "path": "README.md"
+      },
+      "result": "# issue-pilot-benchmark\n\nA small FastAPI application used as the target repository for the IssuePilot\ncoding-agent harness.\n\nThis repository is **intentionally broken at HEAD**. Visible tests under\n`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\nare not part of this tree.\n\n## Layout\n\n```\napp/          FastAPI app, auth, users, orders, inventory, pricing, payments\ntests/        Symptom-level reproductions (one issue per file)\n```\n\n## Run tests\n\n```bash\npip install -r requirements.txt\npytest -q\n```\n\nDo not fix the bugs by hand in the committed baseline — the harness runs\n`git reset --hard <base_commit> && git clean -fd` before every task.\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_02_MDB4Nnuilklsf51iKR7I2611",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/pricing.py"
+      },
+      "result": "\"\"\"Quotes, tax, and coupons.\n\nA coupon code should change the payable amount at most once. Checkout currently\ndoes not call ``compute_checkout_total``.\n\"\"\"\n\nCOUPONS = {\n    \"SAVE10\": 0.10,\n    \"SAVE20\": 0.20,\n}\n\n\ndef quote_price(sku: str, qty: int, unit_price: float) -> float:\n    \"\"\"Unit quote helper; not used by ``orders.create_order``.\"\"\"\n    return round(unit_price * qty, 2)\n\n\ndef apply_tax(subtotal: float, tax_rate: float = 0.0) -> float:\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef apply_coupon(amount: float, code: str | None) -> float:\n    if not code:\n        return round(float(amount), 2)\n    rate = COUPONS.get(code.upper(), 0.0)\n    return round(float(amount) * (1.0 - rate), 2)\n\n\ndef compute_checkout_total(\n    items: list[dict],\n    coupon: str | None = None,\n    tax_rate: float = 0.0,\n) -> float:\n    \"\"\"One-shot subtotal → coupon → tax. Unused by the order service today.\"\"\"\n    subtotal = sum(float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items)\n    discounted = apply_coupon(subtotal, coupon)\n    return apply_tax(discounted, tax_rate)\n"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_SavkfHw4FlHYW1ZG81lH5113",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=1\ncommand: pytest tests/test_inventory_orders.py -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n_____________ test_ordering_more_widgets_than_stock_does_not_crash _____________\n\n>   ???\nE   assert 500 != 500\nE    +  where 500 = <Response [500 Internal Server Error]>.status_code\n\nC:\\Users\\Aaron\\issue-pilot-benchmark\\tests\\test_inventory_orders.py:26: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n1 failed, 3 warnings in 0.49s"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_f0pT2LFlKXkVQkYqz1Me5356",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/inventory.py",
+        "old_str": "def allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\n\n    Oversized quantities index past ``slots`` and raise IndexError (HTTP 500)\n    instead of a 409 from ``reserve``.\n    \"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle",
+        "new_str": "def allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\n\n    Stock is taken through ``reserve`` so oversized quantities raise HTTP 409\n    (out of stock) instead of an IndexError (HTTP 500).\n    \"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        reserve(sku, qty)\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n    return last_aisle"
+      },
+      "result": "Updated app/inventory.py (534 -> 499 chars)"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_PDgSYHITQFMVzi1OcDtL0848",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_inventory_orders.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.55s"
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_00_vVROXiezGtm7cDCZ9riq1082",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "Error: git diff failed (exit 129): warning: Not a git repository. Use --no-index to compare two paths outside a working tree\nusage: git diff --no-index [<options>] <path> <path>\n\nDiff output format options\n    -p, --patch           generate patch\n    -s, --no-patch        suppress diff output\n    -u                    generate patch\n    -U, --unified[=<n>]   generate diffs with <n> lines context\n    -W, --[no-]function-context\n                          generate diffs with <n> lines context\n    --raw                 generate the diff in raw format\n    --patch-with-raw      synonym for '-p --raw'\n    --patch-with-stat     synonym for '-p --stat'\n    --numstat             machine friendly --stat\n    --shortstat           output only the last line of --stat\n    -X, --dirstat[=<param1>,<param2>...]\n                          output the distribution of relative amount of changes for each sub-directory\n    --cumulative          synonym for --dirstat=cumulative\n    --dirstat-by-file[=<param1>,<param2>...]\n                          synonym for --dirstat=files,<param1>,<param2>...\n    --check               warn if changes introduce conflict markers or whitespace errors\n    --summary             condensed summary such as creations, renames and mode changes\n    --name-only           show only names of changed files\n    --name-status         show only names and status of changed files\n    --stat[=<width>[,<name-width>[,<count>]]]\n                          generate diffstat\n    --stat-width <width>  generate diffstat with a given width\n    --stat-name-width <width>\n                          generate diffstat with a given name width\n    --stat-graph-width <width>\n                          generate diffstat with a given graph width\n    --stat-count <count>  generate diffstat with limited lines\n    --[no-]compact-summary\n                          generate compact summary in diffstat\n    --binary              output a binary diff that can be applied\n    --[no-]full-index     show full pre- and post-image object names on the \"index\" lines\n    --[no-]color[=<when>] show colored diff\n    --ws-error-highlight <kind>\n                          highlight whitespace errors in the 'context', 'old' or 'new' lines in the diff\n    -z                    do not munge pathnames and use NULs as output field terminators in --raw or --numstat\n    --[no-]abbrev[=<n>]   use <n> digits to display object names\n    --src-prefix <prefix> show the given source prefix instead of \"a/\"\n    --dst-prefix <prefix> show the given destination prefix instead of \"b/\"\n    --line-prefix <prefix>\n                          prepend an additional prefix to every line of output\n    --no-prefix           do not show any source or destination prefix\n    --default-prefix      use default prefixes a/ and b/\n    --inter-hunk-context <n>\n                          show context between diff hunks up to the specified number of lines\n    --output-indicator-new <char>\n                          specify the character to indicate a new line instead of '+'\n    --output-indicator-old <char>\n                          specify the character to indicate an old line instead of '-'\n    --output-indicator-context <char>\n                          specify the character to indicate a context instead of ' '\n\nDiff rename options\n    -B, --break-rewrites[=<n>[/<m>]]\n                          break complete rewrite changes into pairs of delete and create\n    -M, --find-renames[=<n>]\n                          detect renames\n    -D, --irreversible-delete\n                          omit the preimage for deletes\n    -C, --find-copies[=<n>]\n                          detect copies\n    --[no-]find-copies-harder\n                          use unmodified files as source to find copies\n    --no-renames          disable rename detection\n    --[no-]rename-empty   use empty blobs as rename source\n    --[no-]follow         continue listing the history of a file beyond renames\n    -l <n>                prevent rename/copy detection if the number of rename/copy targets exceeds given limit\n\nDiff algorithm options\n    --minimal             produce the smallest possible diff\n    -w, --ignore-all-space\n                          ignore whitespace when comparing lines\n    -b, --ignore-space-change\n                          ignore changes in amount of whitespace\n    --ignore-space-at-eol ignore changes in whitespace at EOL\n    --ignore-cr-at-eol    ignore carrier-return at the end of line\n    --ignore-blank-lines  ignore changes whose lines are all blank\n    -I, --[no-]ignore-matching-lines <regex>\n                          ignore changes whose all lines match <regex>\n    --[no-]indent-heuristic\n                          heuristic to shift diff hunk boundaries for easy reading\n    --patience            generate diff using the \"patience diff\" algorithm\n    --histogram           generate diff using the \"histogram diff\" algorithm\n    --diff-algorithm <algorithm>\n                          choose a diff algorithm\n    --anchored <text>     generate diff using the \"anchored diff\" algorithm\n    --word-diff[=<mode>]  show word diff, using <mode> to delimit changed words\n    --word-diff-regex <regex>\n                          use <regex> to decide what a word is\n    --color-words[=<regex>]\n                          equivalent to --word-diff=color --word-diff-regex=<regex>\n    --[no-]color-moved[=<mode>]\n                          moved lines of code are colored differently\n    --[no-]color-moved-ws <mode>\n                          how white spaces are ignored in --color-moved\n\nOther diff options\n    --[no-]relative[=<prefix>]\n                          when run from subdir, exclude changes outside and show relative paths\n    -a, --[no-]text       treat all files as text\n    -R                    swap two inputs, reverse the diff\n    --[no-]exit-code      exit with 1 if there were differences, 0 otherwise\n    --[no-]quiet          disable all output of the program\n    --[no-]ext-diff       allow an external diff helper to be executed\n    --[no-]textconv       run external text conversion filters when comparing binary files\n    --ignore-submodules[=<when>]\n                          ignore changes to submodules in the diff generation\n    --submodule[=<format>]\n                          specify how differences in submodules are shown\n    --ita-invisible-in-index\n                          hide 'git add -N' entries from the index\n    --ita-visible-in-index\n                          treat 'git add -N' entries as real in the index\n    -S <string>           look for differences that change the number of occurrences of the specified string\n    -G <regex>            look for differences that change the number of occurrences of the specified regex\n    --pickaxe-all         show all changes in the changeset with -S or -G\n    --pickaxe-regex       treat <string> in -S as extended POSIX regular expression\n    -O <file>             control the order in which files appear in the output\n    --rotate-to <path>    show the change in the specified path first\n    --skip-to <path>      skip the output to the specified path\n    --find-object <object-id>\n                          look for differences that change the number of occurrences of the specified object\n    --diff-filter [(A|C|D|M|R|T|U|X|B)...[*]]\n                          select files by diff type\n    --output <file>       output to a specific file"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_00_AJQatlczfuyY3IwDEmh57320",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/inventory.py"
+      },
+      "result": "\"\"\"Warehouse stock and bin allocation.\n\nCheckout is supposed to take stock through ``reserve`` (conflict → 409).\n``allocate_bin`` is a leftover picking helper still referenced by orders.\n\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\n# Slot lists are used by the picker; length happens to match seeded stock.\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\n\n    Stock is taken through ``reserve`` so oversized quantities raise HTTP 409\n    (out of stock) instead of an IndexError (HTTP 500).\n    \"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        reserve(sku, qty)\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    }
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": "\nYou are a coding agent fixing one issue in a sandboxed repository.\n\nInspect relevant files before editing.\nMake the smallest correct change.\nUse run_tests after editing.\nUse git_diff to inspect your final changes.\nDo not modify tests.\nWhen the issue is fixed and tests pass, respond with a concise final answer\nand make no further tool calls.\n"
+    },
+    {
+      "role": "user",
+      "content": "Fix this issue:\n\nOrdering 50 widgets when 3 are in stock crashes with 500"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_0PfclDGbKG15tzX2M8o32750",
+          "function": {
+            "arguments": "{\"path\": \".\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_38xoEe3J1JMnuv1ANc7r0958",
+          "function": {
+            "arguments": "{\"query\": \"widget\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_0PfclDGbKG15tzX2M8o32750",
+      "content": "_app_bak/\napp/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_38xoEe3J1JMnuv1ANc7r0958",
+      "content": "app/inventory.py:10:    \"widget\": 3,\napp/inventory.py:18:    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\napp/inventory.py:47:        sku = item.get(\"sku\") or \"widget\"\napp/main.py:18:    sku: str = \"widget\"\ntests/test_inventory_orders.py:19:def test_ordering_more_widgets_than_stock_does_not_crash():\ntests/test_inventory_orders.py:23:        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\ntests/test_orders_coupon_refund.py:24:            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\ntests/test_orders_idempotency.py:25:    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_z799rgppi3VRNm4deAsY2951",
+          "function": {
+            "arguments": "{\"path\": \"app/main.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_Q3lJ7XEVL54myf4byCD55285",
+          "function": {
+            "arguments": "{\"path\": \"app/inventory.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        },
+        {
+          "id": "call_02_FmVxhAfJoGmCGWe3NcS88861",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_inventory_orders.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_z799rgppi3VRNm4deAsY2951",
+      "content": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import auth, calculator, inventory, orders, users, validators\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_Q3lJ7XEVL54myf4byCD55285",
+      "content": "\"\"\"Warehouse stock and bin allocation.\n\nCheckout is supposed to take stock through ``reserve`` (conflict → 409).\n``allocate_bin`` is a leftover picking helper still referenced by orders.\n\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\n# Slot lists are used by the picker; length happens to match seeded stock.\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\n\n    Oversized quantities index past ``slots`` and raise IndexError (HTTP 500)\n    instead of a 409 from ``reserve``.\n    \"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_02_FmVxhAfJoGmCGWe3NcS88861",
+      "content": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_gCksfyIS8VLGCC6ysxHz8361",
+          "function": {
+            "arguments": "{\"path\": \"app/orders.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_s8yVmpk4MsOcUqJP1DzJ6293",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_orders_coupon_refund.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        },
+        {
+          "id": "call_02_XTmvjLNRiTOrqnoSPrkS2852",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_orders_idempotency.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_gCksfyIS8VLGCC6ysxHz8361",
+      "content": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    return order\n\n\ndef refund_order(order_id: int) -> dict:\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_s8yVmpk4MsOcUqJP1DzJ6293",
+      "content": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_02_XTmvjLNRiTOrqnoSPrkS2852",
+      "content": "\"\"\"Repeated checkout keys for a single shopper.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_alice_replayed_checkout_key_is_not_a_second_order():\n    token = _login_alice()\n    headers = {\n        \"Authorization\": f\"Bearer {token}\",\n        \"Idempotency-Key\": \"abc-123\",\n    }\n    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}\n    r1 = client.post(\"/orders\", json=body, headers=headers)\n    r2 = client.post(\"/orders\", json=body, headers=headers)\n    assert r1.status_code == 200 and r2.status_code == 200\n    assert r1.json()[\"id\"] == r2.json()[\"id\"]\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_otUxvK6kKL2G98yj1jhU0460",
+          "function": {
+            "arguments": "{\"path\": \"conftest.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_g0RXd0wlo8KpJTS4K4xG9047",
+          "function": {
+            "arguments": "{\"path\": \"tests\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 1
+        },
+        {
+          "id": "call_02_4S2eh2tBBoqXaSUMkSDt5216",
+          "function": {
+            "arguments": "{\"path\": \"app/payments.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_otUxvK6kKL2G98yj1jhU0460",
+      "content": "\"\"\"Pytest bootstrap: make the repository root importable.\"\"\"\n\nfrom __future__ import annotations\n\nimport pathlib\nimport sys\n\nimport pytest\n\n_ROOT = pathlib.Path(__file__).resolve().parent\nif str(_ROOT) not in sys.path:\n    sys.path.insert(0, str(_ROOT))\n\n\n@pytest.fixture(autouse=True)\ndef _reset_stores() -> None:\n    from app import inventory, orders, payments, users\n\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n    yield\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_g0RXd0wlo8KpJTS4K4xG9047",
+      "content": "tests/__init__.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_inventory_orders.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_02_4S2eh2tBBoqXaSUMkSDt5216",
+      "content": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_SnH32weNhDFJbY8A7Vr19890",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_orders_total.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_2yYgRVsoT7vfTrPCLcLg4869",
+          "function": {
+            "arguments": "{\"path\": \"README.md\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        },
+        {
+          "id": "call_02_MDB4Nnuilklsf51iKR7I2611",
+          "function": {
+            "arguments": "{\"path\": \"app/pricing.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_SnH32weNhDFJbY8A7Vr19890",
+      "content": "\"\"\"Order line totals.\"\"\"\n\nfrom app import orders\n\n\ndef test_line_total_is_not_unit_prices_only():\n    total = orders.calculate_total(\n        [\n            {\"price\": 10.0, \"qty\": 3},\n            {\"price\": 2.5, \"qty\": 2},\n        ]\n    )\n    # Summing unit prices and ignoring qty yields 12.5.\n    assert total != 12.5\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_2yYgRVsoT7vfTrPCLcLg4869",
+      "content": "# issue-pilot-benchmark\n\nA small FastAPI application used as the target repository for the IssuePilot\ncoding-agent harness.\n\nThis repository is **intentionally broken at HEAD**. Visible tests under\n`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\nare not part of this tree.\n\n## Layout\n\n```\napp/          FastAPI app, auth, users, orders, inventory, pricing, payments\ntests/        Symptom-level reproductions (one issue per file)\n```\n\n## Run tests\n\n```bash\npip install -r requirements.txt\npytest -q\n```\n\nDo not fix the bugs by hand in the committed baseline — the harness runs\n`git reset --hard <base_commit> && git clean -fd` before every task.\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_02_MDB4Nnuilklsf51iKR7I2611",
+      "content": "\"\"\"Quotes, tax, and coupons.\n\nA coupon code should change the payable amount at most once. Checkout currently\ndoes not call ``compute_checkout_total``.\n\"\"\"\n\nCOUPONS = {\n    \"SAVE10\": 0.10,\n    \"SAVE20\": 0.20,\n}\n\n\ndef quote_price(sku: str, qty: int, unit_price: float) -> float:\n    \"\"\"Unit quote helper; not used by ``orders.create_order``.\"\"\"\n    return round(unit_price * qty, 2)\n\n\ndef apply_tax(subtotal: float, tax_rate: float = 0.0) -> float:\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef apply_coupon(amount: float, code: str | None) -> float:\n    if not code:\n        return round(float(amount), 2)\n    rate = COUPONS.get(code.upper(), 0.0)\n    return round(float(amount) * (1.0 - rate), 2)\n\n\ndef compute_checkout_total(\n    items: list[dict],\n    coupon: str | None = None,\n    tax_rate: float = 0.0,\n) -> float:\n    \"\"\"One-shot subtotal → coupon → tax. Unused by the order service today.\"\"\"\n    subtotal = sum(float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items)\n    discounted = apply_coupon(subtotal, coupon)\n    return apply_tax(discounted, tax_rate)\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_SavkfHw4FlHYW1ZG81lH5113",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_SavkfHw4FlHYW1ZG81lH5113",
+      "content": "exit_code=1\ncommand: pytest tests/test_inventory_orders.py -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n_____________ test_ordering_more_widgets_than_stock_does_not_crash _____________\n\n>   ???\nE   assert 500 != 500\nE    +  where 500 = <Response [500 Internal Server Error]>.status_code\n\nC:\\Users\\Aaron\\issue-pilot-benchmark\\tests\\test_inventory_orders.py:26: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n1 failed, 3 warnings in 0.49s"
+    },
+    {
+      "role": "assistant",
+      "content": "The issue is clear: `inventory.allocate_bin` indexes `bins[\"slots\"][qty - 1]`, which raises `IndexError` (→ HTTP 500) when `qty` exceeds the seeded slot count (3 for widgets). The module docstring says checkout should take stock through `reserve`, which raises HTTP 409 on conflict. Let me fix `allocate_bin` to validate stock via `reserve` first.",
+      "tool_calls": [
+        {
+          "id": "call_00_f0pT2LFlKXkVQkYqz1Me5356",
+          "function": {
+            "arguments": "{\"path\": \"app/inventory.py\", \"old_str\": \"def allocate_bin(items: list[dict]) -> str:\\n    \\\"\\\"\\\"Pick a warehouse aisle for the line items and decrement stock.\\n\\n    Oversized quantities index past ``slots`` and raise IndexError (HTTP 500)\\n    instead of a 409 from ``reserve``.\\n    \\\"\\\"\\\"\\n    last_aisle = \\\"A1\\\"\\n    for item in items:\\n        sku = item.get(\\\"sku\\\") or \\\"widget\\\"\\n        qty = int(item.get(\\\"qty\\\", 1))\\n        bins = WAREHOUSE_BINS[sku]\\n        last_aisle = bins[\\\"aisle\\\"]\\n        _ = bins[\\\"slots\\\"][qty - 1]\\n        _STOCK[sku] = get_stock(sku) - qty\\n    return last_aisle\", \"new_str\": \"def allocate_bin(items: list[dict]) -> str:\\n    \\\"\\\"\\\"Pick a warehouse aisle for the line items and decrement stock.\\n\\n    Stock is taken through ``reserve`` so oversized quantities raise HTTP 409\\n    (out of stock) instead of an IndexError (HTTP 500).\\n    \\\"\\\"\\\"\\n    last_aisle = \\\"A1\\\"\\n    for item in items:\\n        sku = item.get(\\\"sku\\\") or \\\"widget\\\"\\n        qty = int(item.get(\\\"qty\\\", 1))\\n        reserve(sku, qty)\\n        bins = WAREHOUSE_BINS[sku]\\n        last_aisle = bins[\\\"aisle\\\"]\\n    return last_aisle\"}",
+            "name": "edit_file"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_f0pT2LFlKXkVQkYqz1Me5356",
+      "content": "Updated app/inventory.py (534 -> 499 chars)"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_PDgSYHITQFMVzi1OcDtL0848",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_PDgSYHITQFMVzi1OcDtL0848",
+      "content": "exit_code=0\ncommand: pytest tests/test_inventory_orders.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.55s"
+    },
+    {
+      "role": "assistant",
+      "content": "The test passes. Let me review my final changes:",
+      "tool_calls": [
+        {
+          "id": "call_00_vVROXiezGtm7cDCZ9riq1082",
+          "function": {
+            "arguments": "{}",
+            "name": "git_diff"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_vVROXiezGtm7cDCZ9riq1082",
+      "content": "Error: git diff failed (exit 129): warning: Not a git repository. Use --no-index to compare two paths outside a working tree\nusage: git diff --no-index [<options>] <path> <path>\n\nDiff output format options\n    -p, --patch           generate patch\n    -s, --no-patch        suppress diff output\n    -u                    generate patch\n    -U, --unified[=<n>]   generate diffs with <n> lines context\n    -W, --[no-]function-context\n                          generate diffs with <n> lines context\n    --raw                 generate the diff in raw format\n    --patch-with-raw      synonym for '-p --raw'\n    --patch-with-stat     synonym for '-p --stat'\n    --numstat             machine friendly --stat\n    --shortstat           output only the last line of --stat\n    -X, --dirstat[=<param1>,<param2>...]\n                          output the distribution of relative amount of changes for each sub-directory\n    --cumulative          synonym for --dirstat=cumulative\n    --dirstat-by-file[=<param1>,<param2>...]\n                          synonym for --dirstat=files,<param1>,<param2>...\n    --check               warn if changes introduce conflict markers or whitespace errors\n    --summary             condensed summary such as creations, renames and mode changes\n    --name-only           show only names of changed files\n    --name-status         show only names and status of changed files\n    --stat[=<width>[,<name-width>[,<count>]]]\n                          generate diffstat\n    --stat-width <width>  generate diffstat with a given width\n    --stat-name-width <width>\n                          generate diffstat with a given name width\n    --stat-graph-width <width>\n                          generate diffstat with a given graph width\n    --stat-count <count>  generate diffstat with limited lines\n    --[no-]compact-summary\n                          generate compact summary in diffstat\n    --binary              output a binary diff that can be applied\n    --[no-]full-index     show full pre- and post-image object names on the \"index\" lines\n    --[no-]color[=<when>] show colored diff\n    --ws-error-highlight <kind>\n                          highlight whitespace errors in the 'context', 'old' or 'new' lines in the diff\n    -z                    do not munge pathnames and use NULs as output field terminators in --raw or --numstat\n    --[no-]abbrev[=<n>]   use <n> digits to display object names\n    --src-prefix <prefix> show the given source prefix instead of \"a/\"\n    --dst-prefix <prefix> show the given destination prefix instead of \"b/\"\n    --line-prefix <prefix>\n                          prepend an additional prefix to every line of output\n    --no-prefix           do not show any source or destination prefix\n    --default-prefix      use default prefixes a/ and b/\n    --inter-hunk-context <n>\n                          show context between diff hunks up to the specified number of lines\n    --output-indicator-new <char>\n                          specify the character to indicate a new line instead of '+'\n    --output-indicator-old <char>\n                          specify the character to indicate an old line instead of '-'\n    --output-indicator-context <char>\n                          specify the character to indicate a context instead of ' '\n\nDiff rename options\n    -B, --break-rewrites[=<n>[/<m>]]\n                          break complete rewrite changes into pairs of delete and create\n    -M, --find-renames[=<n>]\n                          detect renames\n    -D, --irreversible-delete\n                          omit the preimage for deletes\n    -C, --find-copies[=<n>]\n                          detect copies\n    --[no-]find-copies-harder\n                          use unmodified files as source to find copies\n    --no-renames          disable rename detection\n    --[no-]rename-empty   use empty blobs as rename source\n    --[no-]follow         continue listing the history of a file beyond renames\n    -l <n>                prevent rename/copy detection if the number of rename/copy targets exceeds given limit\n\nDiff algorithm options\n    --minimal             produce the smallest possible diff\n    -w, --ignore-all-space\n                          ignore whitespace when comparing lines\n    -b, --ignore-space-change\n                          ignore changes in amount of whitespace\n    --ignore-space-at-eol ignore changes in whitespace at EOL\n    --ignore-cr-at-eol    ignore carrier-return at the end of line\n    --ignore-blank-lines  ignore changes whose lines are all blank\n    -I, --[no-]ignore-matching-lines <regex>\n                          ignore changes whose all lines match <regex>\n    --[no-]indent-heuristic\n                          heuristic to shift diff hunk boundaries for easy reading\n    --patience            generate diff using the \"patience diff\" algorithm\n    --histogram           generate diff using the \"histogram diff\" algorithm\n    --diff-algorithm <algorithm>\n                          choose a diff algorithm\n    --anchored <text>     generate diff using the \"anchored diff\" algorithm\n    --word-diff[=<mode>]  show word diff, using <mode> to delimit changed words\n    --word-diff-regex <regex>\n                          use <regex> to decide what a word is\n    --color-words[=<regex>]\n                          equivalent to --word-diff=color --word-diff-regex=<regex>\n    --[no-]color-moved[=<mode>]\n                          moved lines of code are colored differently\n    --[no-]color-moved-ws <mode>\n                          how white spaces are ignored in --color-moved\n\nOther diff options\n    --[no-]relative[=<prefix>]\n                          when run from subdir, exclude changes outside and show relative paths\n    -a, --[no-]text       treat all files as text\n    -R                    swap two inputs, reverse the diff\n    --[no-]exit-code      exit with 1 if there were differences, 0 otherwise\n    --[no-]quiet          disable all output of the program\n    --[no-]ext-diff       allow an external diff helper to be executed\n    --[no-]textconv       run external text conversion filters when comparing binary files\n    --ignore-submodules[=<when>]\n                          ignore changes to submodules in the diff generation\n    --submodule[=<format>]\n                          specify how differences in submodules are shown\n    --ita-invisible-in-index\n                          hide 'git add -N' entries from the index\n    --ita-visible-in-index\n                          treat 'git add -N' entries as real in the index\n    -S <string>           look for differences that change the number of occurrences of the specified string\n    -G <regex>            look for differences that change the number of occurrences of the specified regex\n    --pickaxe-all         show all changes in the changeset with -S or -G\n    --pickaxe-regex       treat <string> in -S as extended POSIX regular expression\n    -O <file>             control the order in which files appear in the output\n    --rotate-to <path>    show the change in the specified path first\n    --skip-to <path>      skip the output to the specified path\n    --find-object <object-id>\n                          look for differences that change the number of occurrences of the specified object\n    --diff-filter [(A|C|D|M|R|T|U|X|B)...[*]]\n                          select files by diff type\n    --output <file>       output to a specific file"
+    },
+    {
+      "role": "assistant",
+      "content": "The git tool isn't available in this sandbox, but the test suite passed. Let me verify the final state of the edited file:",
+      "tool_calls": [
+        {
+          "id": "call_00_AJQatlczfuyY3IwDEmh57320",
+          "function": {
+            "arguments": "{\"path\": \"app/inventory.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_AJQatlczfuyY3IwDEmh57320",
+      "content": "\"\"\"Warehouse stock and bin allocation.\n\nCheckout is supposed to take stock through ``reserve`` (conflict → 409).\n``allocate_bin`` is a leftover picking helper still referenced by orders.\n\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\n# Slot lists are used by the picker; length happens to match seeded stock.\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\n\n    Stock is taken through ``reserve`` so oversized quantities raise HTTP 409\n    (out of stock) instead of an IndexError (HTTP 500).\n    \"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        reserve(sku, qty)\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "role": "assistant",
+      "content": "The fix is complete and the test passes.\n\n## Summary\n\n**Root cause:** `app/inventory.py`'s `allocate_bin()` indexed `bins[\"slots\"][qty - 1]` with the requested quantity. Ordering 50 widgets when the seeded bin has only 3 slots raised an `IndexError`, which surfaced as an unhandled 500 error. It also manually decremented stock without any availability check.\n\n**Fix:** `allocate_bin()` now takes stock through the existing `inventory.reserve()` helper, which validates availability and raises a proper HTTP 409 (\"out of stock\") when the requested quantity exceeds stock — matching the module's documented intent (\"Checkout is supposed to take stock through `reserve` (conflict → 409)\"). The buggy slot indexing and duplicate manual decrement were removed, so stock is no longer driven negative and oversized orders no longer crash with 500."
+    }
+  ],
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "sandbox_backend": "docker",
+  "sandbox_image": "issue-pilot-sandbox:py312",
+  "sandbox_network": "none",
+  "sandbox_container_name": "issue-pilot-issue-009-89f36cc2",
+  "sandbox_command_count": 5,
+  "sandbox_timeout_count": 0,
+  "sandbox_truncation_count": 0,
+  "sandbox_denial_count": 0,
+  "sandbox_exec_latency_ms": 4373.64,
+  "sandbox_started": true,
+  "sandbox_cleaned_up": true
+}

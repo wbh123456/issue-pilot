@@ -10,6 +10,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+GOLD_STAGING_DIRNAME = "_gold"
+
 _GIT_CANDIDATES = (
     "git",
     r"C:\Program Files\Git\cmd\git.exe",
@@ -52,3 +54,7 @@ def reset_repo(repo_path: Path, base_commit: str) -> None:
             raise RuntimeError(
                 f"git command failed ({' '.join(cmd)}): {err or 'unknown error'}"
             )
+
+    leftover = repo_path / "tests" / GOLD_STAGING_DIRNAME
+    if leftover.exists():
+        shutil.rmtree(leftover, ignore_errors=True)

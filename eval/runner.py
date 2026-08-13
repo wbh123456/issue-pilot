@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,13 +14,14 @@ from agent.client import create_client, default_model
 from agent.graph import run_workflow
 from agent.loop import run_agent
 from agent.tools.shell import run_tests
-from eval.repository import reset_repo
+from eval.repository import GOLD_STAGING_DIRNAME, reset_repo
 from harness.limits import MAX_AGENT_STEPS
 from sandbox.image import DEFAULT_IMAGE
 from sandbox.runner import SandboxMetadata, SandboxRunner
 
 HARNESS_ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = HARNESS_ROOT / "eval" / "dataset.json"
+GOLD_DIR = HARNESS_ROOT / "eval" / "gold"
 RUNS_DIR = HARNESS_ROOT / "runs"
 
 HarnessVersion = Literal["v0", "v1"]
@@ -49,14 +51,34 @@ def resolve_repo_path(task: dict[str, Any]) -> Path:
     return repo
 
 
-def _test_file_from_command(test_command: str) -> str:
-    """Extract the pytest target path from a module-level test_command."""
-    # e.g. "pytest tests/test_auth.py -q" → "tests/test_auth.py"
-    tokens = test_command.split()
-    for token in tokens:
-        if token.endswith(".py") or "/test" in token.replace("\\", "/"):
-            return token
-    raise ValueError(f"could not find test file in test_command={test_command!r}")
+def gold_file_name(task: dict[str, Any]) -> str:
+    """Return the gold module filename for ``task`` (under eval/gold/)."""
+    named = task.get("gold_file")
+    if named:
+        return str(named)
+    return f"test_{str(task['id']).replace('-', '_')}.py"
+
+
+def gold_staging_dir(repo_path: Path) -> Path:
+    return Path(repo_path) / "tests" / GOLD_STAGING_DIRNAME
+
+
+def cleanup_gold_staging(repo_path: Path) -> None:
+    staged = gold_staging_dir(repo_path)
+    if staged.exists():
+        shutil.rmtree(staged, ignore_errors=True)
+
+
+def stage_gold_file(repo_path: Path, task: dict[str, Any]) -> Path:
+    """Copy the hidden gold module into the benchmark for scoring only."""
+    src = GOLD_DIR / gold_file_name(task)
+    if not src.is_file():
+        raise FileNotFoundError(f"gold file not found: {src}")
+    dest_dir = gold_staging_dir(repo_path)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / src.name
+    dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    return dest
 
 
 def run_gold_test(
@@ -65,20 +87,28 @@ def run_gold_test(
     *,
     sandbox,
 ) -> dict[str, Any]:
-    """Independently run the gold test; agent must not see this selector."""
-    test_file = _test_file_from_command(task["test_command"])
-    gold = task["gold_test"]
-    # Keep node-id form so pytest runs only the gold assertion.
-    command = f"pytest {test_file}::{gold} -q"
-    output = run_tests(repo_path, command, sandbox=sandbox)
-    match = re.search(r"exit_code=(-?\d+)", output)
-    exit_code = int(match.group(1)) if match else 1
-    return {
-        "command": command,
-        "exit_code": exit_code,
-        "passed": exit_code == 0,
-        "output": output,
-    }
+    """Run the hidden gold module; agent tools never see this file.
+
+    The module is copied into ``tests/_gold/`` for the duration of scoring
+    (path jail + ``norecursedirs`` hide that directory from the agent), then
+    removed. ``test_command`` is not used here.
+    """
+    try:
+        staged = stage_gold_file(repo_path, task)
+        rel = staged.relative_to(repo_path).as_posix()
+        gold = task.get("gold_test")
+        command = f"pytest {rel}::{gold} -q" if gold else f"pytest {rel} -q"
+        output = run_tests(repo_path, command, sandbox=sandbox)
+        match = re.search(r"exit_code=(-?\d+)", output)
+        exit_code = int(match.group(1)) if match else 1
+        return {
+            "command": command,
+            "exit_code": exit_code,
+            "passed": exit_code == 0,
+            "output": output,
+        }
+    finally:
+        cleanup_gold_staging(repo_path)
 
 
 def _normalize_harness(harness_version: str) -> HarnessVersion:
@@ -289,6 +319,7 @@ def solve_task(
         "task_id": task_id,
         "harness_version": harness,
         "difficulty": task.get("difficulty"),
+        "split": task.get("split"),
         "issue": task["issue"],
         "base_commit": task["base_commit"],
         "repo_path": str(repo_path),

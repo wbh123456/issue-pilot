@@ -64,7 +64,9 @@ def _fake_task() -> dict[str, Any]:
         "issue": "Expired JWT returns 500 instead of 401",
         "base_commit": "abc123",
         "repo_path": "C:/fake/benchmark",
-        "test_command": "pytest tests/test_auth.py -q",
+        "split": "smoke",
+        "test_command": "pytest tests/test_auth_expired.py -q",
+        "gold_file": "test_issue_001.py",
         "gold_test": "test_expired_token_returns_401",
         "expected_files": ["app/auth.py"],
     }

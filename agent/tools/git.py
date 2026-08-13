@@ -12,7 +12,18 @@ from sandbox.runner import SandboxUnusableError
 from ._sandbox import resolve_repo_root, truncate_output
 
 if TYPE_CHECKING:
-    from sandbox.runner import SandboxRunner
+    from sandbox.runner import CommandResult, SandboxRunner
+
+_GIT_ERROR_DETAIL_LIMIT = 180
+
+
+def _short_git_error(label: str, result: CommandResult) -> str:
+    """One-line error; never dump git's usage/help into the agent context."""
+    raw = (result.stderr or result.stdout or "").strip() or "unknown"
+    first = raw.splitlines()[0].strip()
+    if len(first) > _GIT_ERROR_DETAIL_LIMIT:
+        first = first[:_GIT_ERROR_DETAIL_LIMIT] + "…"
+    return f"Error: {label} (exit {result.exit_code}): {first}"
 
 
 def git_diff(repo_path: str | Path, *, sandbox: SandboxRunner) -> str:
@@ -39,11 +50,9 @@ def git_diff(repo_path: str | Path, *, sandbox: SandboxRunner) -> str:
         return f"Error: git timed out after {COMMAND_TIMEOUT}s"
 
     if diff.exit_code not in (0, 1):
-        err = (diff.stderr or diff.stdout or "").strip()
-        return f"Error: git diff failed (exit {diff.exit_code}): {err or 'unknown'}"
+        return _short_git_error("git diff failed", diff)
     if status.exit_code != 0:
-        err = (status.stderr or status.stdout or "").strip()
-        return f"Error: git status failed (exit {status.exit_code}): {err or 'unknown'}"
+        return _short_git_error("git status failed", status)
 
     diff_text = (diff.stdout or "").rstrip()
     status_text = (status.stdout or "").rstrip()
