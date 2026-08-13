@@ -26,10 +26,11 @@ def deterministic_verify(state: AgentState, config: RunnableConfig) -> dict:
     repo_path = cfg["repo_path"]
     test_command = cfg["test_command"]
 
-    output = run_tests(repo_path, test_command)
+    sandbox = cfg.get("sandbox")
+    output = run_tests(repo_path, test_command, sandbox=sandbox)
     exit_code = _parse_exit_code(output)
     passed = exit_code == 0
-    diff = git_diff(repo_path)
+    diff = git_diff(repo_path, sandbox=sandbox)
 
     return {
         "test_result": {

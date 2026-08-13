@@ -1,7 +1,14 @@
+from __future__ import annotations
+
 import json
 import time
+from typing import TYPE_CHECKING
 
+from harness.limits import MAX_AGENT_STEPS
 from .tools import TOOLS, execute_tool
+
+if TYPE_CHECKING:
+    from sandbox.runner import SandboxRunner
 
 SYSTEM_PROMPT = """
 You are a coding agent fixing one issue in a sandboxed repository.
@@ -22,14 +29,18 @@ def run_agent(
     repo_path: str,
     test_command: str,
     model: str = "deepseek-v4-flash",
-    max_steps: int = 15,
+    max_steps: int = MAX_AGENT_STEPS,
     workflow_context: str | None = None,
+    sandbox: SandboxRunner | None = None,
 ) -> dict:
     """Run the V0 ReAct tool loop.
 
     ``workflow_context`` is an optional V1-only seam: when provided, it is
     appended to the user message. Default ``None`` keeps the V0 prompt and
     return shape unchanged for ablation comparisons.
+
+    ``sandbox`` is runtime configuration (not part of the result contract).
+    Command tools require it; file tools do not.
     """
     user_content = f"Fix this issue:\n\n{issue}"
     if workflow_context:
@@ -94,6 +105,7 @@ def run_agent(
                     args,
                     repo_path=repo_path,
                     test_command=test_command,
+                    sandbox=sandbox,
                 )
             except json.JSONDecodeError as exc:
                 args = {}

@@ -1,11 +1,15 @@
-"""Shared path sandbox helpers for agent tools."""
+"""Shared path sandbox helpers for agent tools.
+
+Host-side file APIs (list/read/edit) may only touch the benchmark repo root.
+They never receive the harness repo, ``.env``, Docker socket, or other mounts.
+Command execution is a separate boundary (see ``harness.permissions`` + Docker).
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-# Day 3 will enforce this more strictly; Day 1 truncates early for headroom.
-MAX_TOOL_OUTPUT = 10_000
+from harness.limits import MAX_TOOL_OUTPUT, truncate_output
 
 _SKIP_DIR_NAMES = {
     ".git",
@@ -20,6 +24,15 @@ _SKIP_DIR_NAMES = {
     "node_modules",
 }
 
+__all__ = [
+    "MAX_TOOL_OUTPUT",
+    "rel_to_repo",
+    "resolve_in_repo",
+    "resolve_repo_root",
+    "should_skip_dir",
+    "truncate_output",
+]
+
 
 def resolve_repo_root(repo_path: str | Path) -> Path:
     root = Path(repo_path).resolve()
@@ -29,10 +42,15 @@ def resolve_repo_root(repo_path: str | Path) -> Path:
 
 
 def resolve_in_repo(repo_path: str | Path, rel_path: str = ".") -> Path:
-    """Resolve ``rel_path`` under ``repo_path``; reject escapes outside the repo."""
+    """Resolve ``rel_path`` under ``repo_path``; reject escapes outside the repo.
+
+    Symlinks are followed via ``Path.resolve()``. A link that points outside
+    the benchmark root raises ``PermissionError``. Absolute inputs that resolve
+    outside the root are likewise rejected.
+    """
     root = resolve_repo_root(repo_path)
     candidate = rel_path.strip() or "."
-    # Absolute inputs are treated as relative to the sandbox root by name only.
+    # resolve() follows symlinks; relative_to rejects anything outside root.
     target = (root / candidate).resolve()
     try:
         target.relative_to(root)
@@ -46,16 +64,6 @@ def resolve_in_repo(repo_path: str | Path, rel_path: str = ".") -> Path:
 def rel_to_repo(repo_path: str | Path, absolute: Path) -> str:
     root = resolve_repo_root(repo_path)
     return absolute.resolve().relative_to(root).as_posix()
-
-
-def truncate_output(text: str, limit: int = MAX_TOOL_OUTPUT) -> str:
-    if len(text) <= limit:
-        return text
-    omitted = len(text) - limit
-    return (
-        text[:limit]
-        + f"\n\n...[truncated {omitted} chars; MAX_TOOL_OUTPUT={limit}]"
-    )
 
 
 def should_skip_dir(name: str) -> bool:

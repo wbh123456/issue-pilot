@@ -15,6 +15,7 @@ from agent.nodes import (
     structured_plan,
 )
 from agent.state import AgentState, initial_state
+from harness.limits import MAX_AGENT_STEPS
 
 
 def mark_success(state: AgentState) -> dict:
@@ -113,12 +114,14 @@ def run_workflow(
     repo_path: str,
     test_command: str,
     model: str = "deepseek-v4-flash",
-    max_steps: int = 15,
+    max_steps: int = MAX_AGENT_STEPS,
     graph=None,
+    sandbox=None,
 ) -> dict[str, Any]:
     """Invoke the V1 graph and return evaluator-compatible result keys.
 
-    Runtime objects stay in ``configurable``, not in ``AgentState``.
+    Runtime objects (LLM client, SandboxRunner) stay in ``configurable``,
+    not in serializable ``AgentState``.
     """
     compiled = graph or get_graph()
     started_at = time.perf_counter()
@@ -131,6 +134,7 @@ def run_workflow(
                 "repo_path": repo_path,
                 "test_command": test_command,
                 "max_steps": max_steps,
+                "sandbox": sandbox,
             }
         },
     )

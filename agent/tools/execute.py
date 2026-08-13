@@ -1,10 +1,24 @@
-from .filesystem import list_files, read_file
-from .search import grep_code
-from .filesystem import edit_file
-from .shell import run_tests
-from .git import git_diff
+from __future__ import annotations
 
-def execute_tool(name, args, *, repo_path, test_command):
+from typing import TYPE_CHECKING, Any
+
+from .filesystem import edit_file, list_files, read_file
+from .git import git_diff
+from .search import grep_code
+from .shell import run_tests
+
+if TYPE_CHECKING:
+    from sandbox.runner import SandboxRunner
+
+
+def execute_tool(
+    name: str,
+    args: dict[str, Any],
+    *,
+    repo_path: str,
+    test_command: str,
+    sandbox: SandboxRunner | None = None,
+) -> str:
     if name == "list_files":
         return list_files(repo_path, args.get("path", "."))
     if name == "read_file":
@@ -14,8 +28,8 @@ def execute_tool(name, args, *, repo_path, test_command):
     if name == "edit_file":
         return edit_file(repo_path, **args)
     if name == "run_tests":
-        return run_tests(repo_path, test_command)
+        return run_tests(repo_path, test_command, sandbox=sandbox)
     if name == "git_diff":
-        return git_diff(repo_path)
+        return git_diff(repo_path, sandbox=sandbox)
 
     return f"Error: unknown tool: {name}"

@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from agent.loop import run_agent
 from agent.state import AgentState
+from harness.limits import MAX_AGENT_STEPS
 
 from ._runtime import merge_telemetry, require_config
 
@@ -35,8 +36,9 @@ def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
         repo_path=cfg["repo_path"],
         test_command=cfg["test_command"],
         model=cfg["model"],
-        max_steps=int(cfg.get("max_steps", 15)),
+        max_steps=int(cfg.get("max_steps", MAX_AGENT_STEPS)),
         workflow_context=_workflow_context(state),
+        sandbox=cfg.get("sandbox"),
     )
 
     prompt_tokens = int(result.get("prompt_tokens", 0) or 0)
