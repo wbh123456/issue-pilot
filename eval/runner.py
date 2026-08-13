@@ -1,10 +1,9 @@
-"""Eval runner: reset benchmark → run harness → score gold test → save run."""
+"""Eval runner: reset benchmark → sandbox → run harness → gold test → save."""
 
 from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,8 +12,11 @@ from typing import Any, Literal
 from agent.client import create_client, default_model
 from agent.graph import run_workflow
 from agent.loop import run_agent
-from agent.tools.git import _find_git
 from agent.tools.shell import run_tests
+from eval.repository import reset_repo
+from harness.limits import MAX_AGENT_STEPS
+from sandbox.image import DEFAULT_IMAGE
+from sandbox.runner import SandboxMetadata, SandboxRunner
 
 HARNESS_ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = HARNESS_ROOT / "eval" / "dataset.json"
@@ -47,32 +49,6 @@ def resolve_repo_path(task: dict[str, Any]) -> Path:
     return repo
 
 
-def reset_repo(repo_path: Path, base_commit: str) -> None:
-    """Hard-reset the benchmark repo to ``base_commit`` and clean extras."""
-    git = _find_git()
-    if git is None:
-        raise RuntimeError("git executable not found")
-
-    commands = [
-        [git, "-C", str(repo_path), "reset", "--hard", base_commit],
-        [git, "-C", str(repo_path), "clean", "-fd"],
-    ]
-    for cmd in commands:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-        if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "").strip()
-            raise RuntimeError(
-                f"git command failed ({' '.join(cmd)}): {err or 'unknown error'}"
-            )
-
-
 def _test_file_from_command(test_command: str) -> str:
     """Extract the pytest target path from a module-level test_command."""
     # e.g. "pytest tests/test_auth.py -q" → "tests/test_auth.py"
@@ -83,13 +59,18 @@ def _test_file_from_command(test_command: str) -> str:
     raise ValueError(f"could not find test file in test_command={test_command!r}")
 
 
-def run_gold_test(repo_path: Path, task: dict[str, Any]) -> dict[str, Any]:
+def run_gold_test(
+    repo_path: Path,
+    task: dict[str, Any],
+    *,
+    sandbox,
+) -> dict[str, Any]:
     """Independently run the gold test; agent must not see this selector."""
     test_file = _test_file_from_command(task["test_command"])
     gold = task["gold_test"]
     # Keep node-id form so pytest runs only the gold assertion.
     command = f"pytest {test_file}::{gold} -q"
-    output = run_tests(repo_path, command)
+    output = run_tests(repo_path, command, sandbox=sandbox)
     match = re.search(r"exit_code=(-?\d+)", output)
     exit_code = int(match.group(1)) if match else 1
     return {
@@ -127,6 +108,7 @@ def _run_harness(
     test_command: str,
     model: str,
     max_steps: int,
+    sandbox=None,
 ) -> dict[str, Any]:
     if harness == "v0":
         return run_agent(
@@ -136,6 +118,7 @@ def _run_harness(
             test_command=test_command,
             model=model,
             max_steps=max_steps,
+            sandbox=sandbox,
         )
     return run_workflow(
         client=client,
@@ -144,6 +127,7 @@ def _run_harness(
         test_command=test_command,
         model=model,
         max_steps=max_steps,
+        sandbox=sandbox,
     )
 
 
@@ -165,19 +149,64 @@ def _empty_agent_result() -> dict[str, Any]:
     }
 
 
+def _failed_gold(message: str) -> dict[str, Any]:
+    return {
+        "command": "",
+        "exit_code": 1,
+        "passed": False,
+        "output": message,
+    }
+
+
+def _sandbox_fields(
+    meta: SandboxMetadata | None,
+    *,
+    start_error: str | None = None,
+) -> dict[str, Any]:
+    """Auditable sandbox telemetry. There is no public host backend."""
+    if meta is None:
+        return {
+            "sandbox_backend": "docker",
+            "sandbox_image": DEFAULT_IMAGE,
+            "sandbox_network": "none",
+            "sandbox_container_name": None,
+            "sandbox_command_count": 0,
+            "sandbox_timeout_count": 0,
+            "sandbox_truncation_count": 0,
+            "sandbox_denial_count": 0,
+            "sandbox_exec_latency_ms": 0.0,
+            "sandbox_started": False,
+            "sandbox_cleaned_up": False,
+            "sandbox_start_error": start_error,
+        }
+    return {
+        "sandbox_backend": meta.backend,
+        "sandbox_image": meta.image,
+        "sandbox_network": meta.network_mode,
+        "sandbox_container_name": meta.container_name,
+        "sandbox_command_count": meta.command_count,
+        "sandbox_timeout_count": meta.timeout_count,
+        "sandbox_truncation_count": meta.truncation_count,
+        "sandbox_denial_count": meta.denial_count,
+        "sandbox_exec_latency_ms": round(meta.total_exec_latency_ms, 2),
+        "sandbox_started": meta.started,
+        "sandbox_cleaned_up": meta.cleaned_up,
+    }
+
+
 def solve_task(
     task_id: str,
     *,
     model: str | None = None,
-    max_steps: int = 15,
+    max_steps: int = MAX_AGENT_STEPS,
     client=None,
     harness_version: str = "v0",
 ) -> dict[str, Any]:
     """Full harness cycle for one dataset task.
 
-    Same flow for both harnesses: reset repo → run harness → gold test → save.
+    Flow: reset repo → enter one sandbox → run V0/V1 → gold test → cleanup.
     Gold scoring stays independent of V0/V1 workflow verification.
-    Exceptions still produce a versioned run artifact.
+    Sandbox startup or execution failures still produce a versioned run artifact.
     """
     harness = _normalize_harness(harness_version)
     task = get_task(task_id)
@@ -193,33 +222,59 @@ def solve_task(
     error_message: str | None = None
     gold_error_type: str | None = None
     gold_error_message: str | None = None
+    sandbox_record = _sandbox_fields(None)
 
     try:
-        agent_result = _run_harness(
-            harness=harness,
-            client=llm,
-            issue=task["issue"],
-            repo_path=str(repo_path),
-            test_command=task["test_command"],
-            model=model_name,
-            max_steps=max_steps,
-        )
-    except Exception as exc:
-        error_type = type(exc).__name__
-        error_message = str(exc)
-        agent_result = _empty_agent_result()
+        with SandboxRunner(repo_path, task_id=task_id) as sandbox:
+            try:
+                agent_result = _run_harness(
+                    harness=harness,
+                    client=llm,
+                    issue=task["issue"],
+                    repo_path=str(repo_path),
+                    test_command=task["test_command"],
+                    model=model_name,
+                    max_steps=max_steps,
+                    sandbox=sandbox,
+                )
+            except Exception as exc:
+                error_type = type(exc).__name__
+                error_message = str(exc)
+                agent_result = _empty_agent_result()
 
-    try:
-        gold = run_gold_test(repo_path, task)
+            try:
+                if not sandbox.meta.usable:
+                    gold_error_type = "SandboxUnusableError"
+                    gold_error_message = (
+                        "sandbox is not usable; skipped gold test after "
+                        "timeout or forced cleanup"
+                    )
+                    gold = _failed_gold(
+                        f"Error running gold test: {gold_error_type}: "
+                        f"{gold_error_message}"
+                    )
+                else:
+                    gold = run_gold_test(repo_path, task, sandbox=sandbox)
+            except Exception as exc:
+                gold_error_type = type(exc).__name__
+                gold_error_message = str(exc)
+                gold = _failed_gold(
+                    f"Error running gold test: {gold_error_type}: {gold_error_message}"
+                )
+        # Snapshot after __exit__ so cleanup outcome is included.
+        sandbox_record = _sandbox_fields(sandbox.meta)
     except Exception as exc:
-        gold_error_type = type(exc).__name__
-        gold_error_message = str(exc)
-        gold = {
-            "command": "",
-            "exit_code": 1,
-            "passed": False,
-            "output": f"Error running gold test: {gold_error_type}: {gold_error_message}",
-        }
+        # Construction or start failed; __exit__ did not run.
+        if error_type is None:
+            error_type = type(exc).__name__
+            error_message = str(exc)
+        sandbox_record = _sandbox_fields(None, start_error=str(exc))
+        if gold is None:
+            gold = _failed_gold(
+                f"Error running gold test: sandbox unavailable: {type(exc).__name__}: {exc}"
+            )
+            gold_error_type = type(exc).__name__
+            gold_error_message = str(exc)
 
     # V0 has one LLM call per ReAct step; V1 reports aggregated stage calls.
     llm_calls = agent_result.get("llm_calls")
@@ -255,6 +310,7 @@ def solve_task(
         "trajectory": agent_result.get("trajectory"),
         "messages": agent_result.get("messages"),
         "python": sys.version,
+        **sandbox_record,
     }
 
     if error_type is not None:
