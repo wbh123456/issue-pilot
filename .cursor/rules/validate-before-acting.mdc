@@ -1,0 +1,12 @@
+---
+description: Check whether the user's question or assumption is correct before acting
+alwaysApply: true
+---
+
+# Validate before acting
+
+Treat the request as a claim to verify, not an instruction to follow blindly.
+
+Before creating, renaming, editing, or committing: check the question, label, and assumed facts against the repo (files, docs, git history, conventions). If the framing looks wrong, say so in one or two sentences and wait. Do not proceed under the mistaken name or assumption.
+
+If they confirm anyway, follow that.
