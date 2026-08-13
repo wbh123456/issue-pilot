@@ -395,6 +395,63 @@ class TestWorkflowGraph:
         diagnose_mock.assert_not_called()
 
 
+class TestSandboxRuntimeConfig:
+    def test_sandbox_is_threaded_not_serialized_in_state(self) -> None:
+        fake_sandbox = object()
+        client = FakeClient(
+            [
+                _Response("analysis text"),
+                _Response(json.dumps(VALID_PLAN)),
+            ]
+        )
+        executor = {
+            "final_answer": "fixed",
+            "termination": "completed",
+            "steps": 1,
+            "tool_call_count": 0,
+            "file_reads": 0,
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+            "tokens": 2,
+            "latency": 0.1,
+            "trajectory": [],
+            "messages": [],
+        }
+
+        with (
+            patch("agent.nodes.plan.list_files", side_effect=_fake_list_files),
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+            patch("agent.nodes.execute.run_agent", return_value=executor) as run_agent_mock,
+            patch(
+                "agent.nodes.verify.run_tests",
+                return_value="exit_code=0\nok",
+            ) as run_tests_mock,
+            patch("agent.nodes.verify.git_diff", return_value="(no changes)") as git_diff_mock,
+            patch("agent.graph.diagnose_failure") as diagnose_mock,
+        ):
+            result = run_workflow(
+                client=client,
+                issue="bug",
+                repo_path="/tmp/repo",
+                test_command="pytest -q",
+                sandbox=fake_sandbox,
+                graph=build_graph(),
+            )
+
+        assert result["workflow_passed"] is True
+        assert run_agent_mock.call_args.kwargs["sandbox"] is fake_sandbox
+        assert run_tests_mock.call_args.kwargs["sandbox"] is fake_sandbox
+        assert git_diff_mock.call_args.kwargs["sandbox"] is fake_sandbox
+        diagnose_mock.assert_not_called()
+        assert "sandbox" not in (result.get("messages") or [])
+        for key in ("final_answer", "termination", "steps", "tokens", "trajectory"):
+            assert key in result
+        assert "sandbox" not in result
+
+
 class TestV0Seam:
     def test_default_prompt_unchanged_without_context(self) -> None:
         client = FakeClient([_Response("all done")])

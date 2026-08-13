@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import subprocess
-import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
 from agent.tools import (
     edit_file,
+    execute_tool,
     git_diff,
     grep_code,
     list_files,
@@ -17,11 +18,13 @@ from agent.tools import (
     run_tests,
 )
 from agent.tools._sandbox import MAX_TOOL_OUTPUT, truncate_output
-from agent.tools.git import _find_git
+from eval.repository import find_host_git
+from harness.permissions import validate_command
+from sandbox.runner import CommandResult
 
 
 def _git(repo: Path, *args: str) -> None:
-    git = _find_git()
+    git = find_host_git()
     assert git is not None, "git is required for these tests"
     subprocess.run(
         [git, "-C", str(repo), *args],
@@ -29,6 +32,21 @@ def _git(repo: Path, *args: str) -> None:
         capture_output=True,
         text=True,
     )
+
+
+@dataclass
+class ScriptedSandbox:
+    """Fake SandboxRunner: policy-check, then return scripted CommandResults."""
+
+    results: list[CommandResult] = field(default_factory=list)
+    calls: list[list[str]] = field(default_factory=list)
+
+    def run(self, command: str | list[str]) -> CommandResult:
+        argv = validate_command(command)
+        self.calls.append(argv)
+        if not self.results:
+            raise AssertionError(f"unexpected sandbox command: {argv}")
+        return self.results.pop(0)
 
 
 @pytest.fixture
@@ -82,6 +100,28 @@ class TestListAndRead:
         with pytest.raises(PermissionError):
             list_files(repo, "../")
 
+    def test_nested_path_escape_rejected(self, repo: Path) -> None:
+        with pytest.raises(PermissionError):
+            read_file(repo, "app/../../outside.txt")
+
+    def test_absolute_path_outside_rejected(self, repo: Path) -> None:
+        outside = Path.cwd().anchor  # drive root on Windows, "/" on POSIX
+        with pytest.raises(PermissionError):
+            read_file(repo, outside)
+
+    def test_symlink_escape_rejected(self, repo: Path, tmp_path: Path) -> None:
+        outside = tmp_path.parent / f"issue_pilot_secret_{tmp_path.name}.txt"
+        outside.write_text("secret-leaked\n", encoding="utf-8")
+        link = repo / "leak.txt"
+        try:
+            link.symlink_to(outside)
+        except OSError:
+            pytest.skip("symlink creation requires privileges on this host")
+        try:
+            with pytest.raises(PermissionError):
+                read_file(repo, "leak.txt")
+        finally:
+            outside.unlink(missing_ok=True)
 
 class TestGrep:
     def test_grep_finds_match(self, repo: Path) -> None:
@@ -94,6 +134,14 @@ class TestGrep:
 
     def test_grep_empty_query(self, repo: Path) -> None:
         assert grep_code(repo, "").startswith("Error:")
+
+    def test_grep_does_not_use_host_ripgrep(self, repo: Path) -> None:
+        import agent.tools.search as search_mod
+
+        assert not hasattr(search_mod, "_grep_with_rg")
+        out = grep_code(repo, "greet")
+        assert "hello.py" in out
+        assert "greet" in out
 
 
 class TestEditFile:
@@ -131,49 +179,148 @@ class TestEditFile:
 
 
 class TestRunTests:
-    def test_run_python_command(self, repo: Path) -> None:
-        cmd = f'{sys.executable} -c "print(42)"'
-        out = run_tests(repo, cmd)
+    def test_run_pytest_via_sandbox(self, repo: Path) -> None:
+        sandbox = ScriptedSandbox(
+            [
+                CommandResult(
+                    command=["pytest", "tests/test_auth.py", "-q"],
+                    exit_code=0,
+                    stdout="1 passed",
+                    stderr="",
+                )
+            ]
+        )
+        out = run_tests(repo, "pytest tests/test_auth.py -q", sandbox=sandbox)
         assert "exit_code=0" in out
-        assert "42" in out
+        assert "1 passed" in out
+        assert sandbox.calls == [["pytest", "tests/test_auth.py", "-q"]]
 
     def test_run_failing_command(self, repo: Path) -> None:
-        cmd = f'{sys.executable} -c "raise SystemExit(7)"'
-        out = run_tests(repo, cmd)
+        sandbox = ScriptedSandbox(
+            [
+                CommandResult(
+                    command=["pytest", "-q"],
+                    exit_code=7,
+                    stdout="",
+                    stderr="failed",
+                )
+            ]
+        )
+        out = run_tests(repo, "pytest -q", sandbox=sandbox)
         assert "exit_code=7" in out
+        assert "failed" in out
 
     def test_empty_command(self, repo: Path) -> None:
-        assert run_tests(repo, "   ").startswith("Error:")
+        sandbox = ScriptedSandbox()
+        assert run_tests(repo, "   ", sandbox=sandbox).startswith("Error:")
+        assert sandbox.calls == []
 
-    def test_pytest_fallback_rewrites_when_missing(
-        self, repo: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr("agent.tools.shell.shutil.which", lambda _name: None)
-        # `-h` exits 0 quickly and avoids needing a real test suite.
-        out = run_tests(repo, "pytest -h")
-        assert "exit_code=0" in out
-        assert "-m pytest" in out or "pytest" in out
+    def test_requires_sandbox(self, repo: Path) -> None:
+        with pytest.raises(RuntimeError, match="host execution is not allowed"):
+            run_tests(repo, "pytest -q", sandbox=None)  # type: ignore[arg-type]
+
+    def test_rejects_host_python(self, repo: Path) -> None:
+        sandbox = ScriptedSandbox()
+        out = run_tests(repo, 'python -c "print(42)"', sandbox=sandbox)
+        assert out.startswith("Error: command not allowed")
+        assert sandbox.calls == []
+
+    def test_timeout_message(self, repo: Path) -> None:
+        sandbox = ScriptedSandbox(
+            [
+                CommandResult(
+                    command=["pytest", "-q"],
+                    exit_code=124,
+                    stdout="",
+                    stderr="timed out",
+                    timed_out=True,
+                )
+            ]
+        )
+        out = run_tests(repo, "pytest -q", sandbox=sandbox)
+        assert out.startswith("Error: tests timed out")
 
 
 class TestGitDiff:
     def test_clean_tree(self, repo: Path) -> None:
-        assert git_diff(repo) == "(no changes)"
+        sandbox = ScriptedSandbox(
+            [
+                CommandResult(["git", "diff", "HEAD"], 0, "", ""),
+                CommandResult(["git", "status", "--short"], 0, "", ""),
+            ]
+        )
+        assert git_diff(repo, sandbox=sandbox) == "(no changes)"
+        assert sandbox.calls == [
+            ["git", "diff", "HEAD"],
+            ["git", "status", "--short"],
+        ]
 
     def test_shows_modification(self, repo: Path) -> None:
-        edit_file(
-            repo,
-            "app/hello.py",
-            old_str="return f'hi {name}'",
-            new_str="return f'hey {name}'",
+        sandbox = ScriptedSandbox(
+            [
+                CommandResult(
+                    ["git", "diff", "HEAD"],
+                    0,
+                    "diff --git a/app/hello.py b/app/hello.py\n+return f'hey {name}'\n",
+                    "",
+                ),
+                CommandResult(["git", "status", "--short"], 0, " M app/hello.py\n", ""),
+            ]
         )
-        out = git_diff(repo)
+        out = git_diff(repo, sandbox=sandbox)
         assert "hello.py" in out
         assert "hey {name}" in out or "+return" in out
 
     def test_shows_untracked(self, repo: Path) -> None:
-        edit_file(repo, "scratch.txt", content="tmp\n")
-        out = git_diff(repo)
+        sandbox = ScriptedSandbox(
+            [
+                CommandResult(["git", "diff", "HEAD"], 0, "", ""),
+                CommandResult(["git", "status", "--short"], 0, "?? scratch.txt\n", ""),
+            ]
+        )
+        out = git_diff(repo, sandbox=sandbox)
         assert "scratch.txt" in out
+
+    def test_requires_sandbox(self, repo: Path) -> None:
+        with pytest.raises(RuntimeError, match="host execution is not allowed"):
+            git_diff(repo, sandbox=None)  # type: ignore[arg-type]
+
+
+class TestExecuteToolSandbox:
+    def test_run_tests_and_git_diff_inject_sandbox(self, repo: Path) -> None:
+        sandbox = ScriptedSandbox(
+            [
+                CommandResult(["pytest", "-q"], 0, "ok", ""),
+                CommandResult(["git", "diff", "HEAD"], 0, "", ""),
+                CommandResult(["git", "status", "--short"], 0, "", ""),
+            ]
+        )
+        tests_out = execute_tool(
+            "run_tests",
+            {},
+            repo_path=str(repo),
+            test_command="pytest -q",
+            sandbox=sandbox,
+        )
+        diff_out = execute_tool(
+            "git_diff",
+            {},
+            repo_path=str(repo),
+            test_command="pytest -q",
+            sandbox=sandbox,
+        )
+        assert "exit_code=0" in tests_out
+        assert diff_out == "(no changes)"
+
+    def test_no_host_fallback_without_sandbox(self, repo: Path) -> None:
+        with pytest.raises(RuntimeError, match="host execution is not allowed"):
+            execute_tool(
+                "run_tests",
+                {},
+                repo_path=str(repo),
+                test_command="pytest -q",
+                sandbox=None,
+            )
 
 
 class TestTruncate:

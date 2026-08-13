@@ -12,6 +12,49 @@ import pytest
 import cli
 import eval.runner as runner
 from eval.runner import _normalize_harness, save_run, solve_task
+from sandbox.runner import SandboxError, SandboxMetadata
+
+
+class FakeSandbox:
+    """Context-managed stand-in so solve_task tests never talk to Docker."""
+
+    instances: list[FakeSandbox] = []
+
+    def __init__(self, workspace_host, *, task_id=None, **kwargs):
+        self.workspace_host = workspace_host
+        self.task_id = task_id
+        self.meta = SandboxMetadata(
+            image="issue-pilot-sandbox:py312",
+            task_id=task_id,
+            workspace_host=str(workspace_host),
+        )
+        type(self).instances.append(self)
+
+    def __enter__(self) -> FakeSandbox:
+        self.meta.started = True
+        self.meta.usable = True
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        self.meta.cleaned_up = True
+        self.meta.usable = False
+        return None
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.instances = []
+
+
+class FailingStartSandbox(FakeSandbox):
+    def __enter__(self) -> FakeSandbox:
+        raise SandboxError("docker daemon not reachable")
+
+
+@pytest.fixture
+def fake_sandbox(monkeypatch: pytest.MonkeyPatch) -> type[FakeSandbox]:
+    FakeSandbox.reset()
+    monkeypatch.setattr(runner, "SandboxRunner", FakeSandbox)
+    return FakeSandbox
 
 
 def _fake_task() -> dict[str, Any]:
@@ -78,7 +121,7 @@ class TestSaveRun:
 
 class TestSolveTaskDispatch:
     def test_dispatches_v0_and_records_common_fields(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
     ) -> None:
         monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
         task = _fake_task()
@@ -116,9 +159,13 @@ class TestSolveTaskDispatch:
         assert record["tokens"] == 120
         assert "analysis" not in record
         assert Path(record["run_path"]).name.startswith("issue-001-v0-")
+        assert record["sandbox_backend"] == "docker"
+        assert record["sandbox_network"] == "none"
+        assert record["sandbox_cleaned_up"] is True
+        assert record["sandbox_started"] is True
 
     def test_dispatches_v1_and_records_workflow_fields(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
     ) -> None:
         monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
         task = _fake_task()
@@ -146,6 +193,7 @@ class TestSolveTaskDispatch:
         reset_mock.assert_called_once()
         assert harness_mock.call_args.kwargs["harness"] == "v1"
         assert harness_mock.call_args.kwargs["max_steps"] == 11
+        assert harness_mock.call_args.kwargs["sandbox"] is fake_sandbox.instances[0]
         assert record["harness_version"] == "v1"
         assert record["analysis"] == "analysis"
         assert record["plan"]["steps"] == ["a"]
@@ -154,7 +202,7 @@ class TestSolveTaskDispatch:
         assert Path(record["run_path"]).name.startswith("issue-001-v1-")
 
     def test_gold_success_independent_of_workflow_pass(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
     ) -> None:
         monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
         task = _fake_task()
@@ -186,7 +234,7 @@ class TestSolveTaskDispatch:
         assert record["success"] is False
 
     def test_compare_isolation_resets_each_run(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
     ) -> None:
         """Each solve_task resets; compare relies on that for isolation."""
         monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
@@ -222,9 +270,51 @@ class TestSolveTaskDispatch:
             solve_task("issue-001", harness_version="v1")
 
         assert resets == ["abc123", "abc123"]
+        assert len(fake_sandbox.instances) == 2
+        assert fake_sandbox.instances[0] is not fake_sandbox.instances[1]
+        assert all(sb.meta.cleaned_up for sb in fake_sandbox.instances)
+
+    def test_one_container_shared_by_harness_and_gold(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
+    ) -> None:
+        monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
+        task = _fake_task()
+        seen: dict[str, Any] = {}
+
+        def fake_run_harness(*, sandbox, **kwargs: Any) -> dict[str, Any]:
+            seen["harness"] = sandbox
+            sandbox.meta.command_count += 2
+            return _agent_result("v0")
+
+        def fake_gold(repo_path: Path, task: dict[str, Any], *, sandbox) -> dict[str, Any]:
+            seen["gold"] = sandbox
+            sandbox.meta.command_count += 1
+            return {
+                "command": "pytest gold",
+                "exit_code": 0,
+                "passed": True,
+                "output": "exit_code=0",
+            }
+
+        with (
+            patch.object(runner, "get_task", return_value=task),
+            patch.object(runner, "resolve_repo_path", return_value=Path(task["repo_path"])),
+            patch.object(runner, "reset_repo"),
+            patch.object(runner, "_run_harness", side_effect=fake_run_harness),
+            patch.object(runner, "run_gold_test", side_effect=fake_gold),
+            patch.object(runner, "create_client", return_value=object()),
+            patch.object(runner, "default_model", return_value="fake-model"),
+        ):
+            record = solve_task("issue-001", harness_version="v0")
+
+        assert seen["harness"] is seen["gold"]
+        assert record["sandbox_command_count"] == 3
+        assert record["sandbox_cleaned_up"] is True
+        assert record["sandbox_backend"] == "docker"
+        assert "host" not in str(record["sandbox_backend"]).lower()
 
     def test_harness_exception_still_saves_run(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
     ) -> None:
         monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
         task = _fake_task()
@@ -261,6 +351,69 @@ class TestSolveTaskDispatch:
         assert path.name.startswith("issue-001-v1-")
         saved = json.loads(path.read_text(encoding="utf-8"))
         assert saved["error_type"] == "RuntimeError"
+        assert record["sandbox_cleaned_up"] is True
+
+    def test_sandbox_start_failure_still_saves_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
+        FakeSandbox.reset()
+        monkeypatch.setattr(runner, "SandboxRunner", FailingStartSandbox)
+        task = _fake_task()
+
+        with (
+            patch.object(runner, "get_task", return_value=task),
+            patch.object(runner, "resolve_repo_path", return_value=Path(task["repo_path"])),
+            patch.object(runner, "reset_repo") as reset_mock,
+            patch.object(runner, "_run_harness") as harness_mock,
+            patch.object(runner, "run_gold_test") as gold_mock,
+            patch.object(runner, "create_client", return_value=object()),
+            patch.object(runner, "default_model", return_value="fake-model"),
+        ):
+            record = solve_task("issue-001", harness_version="v0")
+
+        reset_mock.assert_called_once()
+        harness_mock.assert_not_called()
+        gold_mock.assert_not_called()
+        assert record["success"] is False
+        assert record["termination"] == "error"
+        assert record["error_type"] == "SandboxError"
+        assert "docker daemon" in record["error_message"]
+        assert record["sandbox_backend"] == "docker"
+        assert record["sandbox_started"] is False
+        assert record["sandbox_cleaned_up"] is False
+        assert record.get("sandbox_start_error")
+        path = Path(record["run_path"])
+        assert path.is_file()
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        assert saved["error_type"] == "SandboxError"
+
+    def test_gold_skipped_when_sandbox_unusable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
+    ) -> None:
+        monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
+        task = _fake_task()
+
+        def fake_run_harness(*, sandbox, **kwargs: Any) -> dict[str, Any]:
+            sandbox.meta.usable = False
+            return _agent_result("v0")
+
+        with (
+            patch.object(runner, "get_task", return_value=task),
+            patch.object(runner, "resolve_repo_path", return_value=Path(task["repo_path"])),
+            patch.object(runner, "reset_repo"),
+            patch.object(runner, "_run_harness", side_effect=fake_run_harness),
+            patch.object(runner, "run_gold_test") as gold_mock,
+            patch.object(runner, "create_client", return_value=object()),
+            patch.object(runner, "default_model", return_value="fake-model"),
+        ):
+            record = solve_task("issue-001", harness_version="v0")
+
+        gold_mock.assert_not_called()
+        assert record["success"] is False
+        assert record["gold_error_type"] == "SandboxUnusableError"
+        assert "skipped gold test" in record["gold_error_message"]
+        assert record["sandbox_cleaned_up"] is True
 
 
 class TestCLI:
@@ -326,3 +479,24 @@ class TestCLI:
     def test_rejects_invalid_harness_arg(self) -> None:
         with pytest.raises(SystemExit):
             cli.main(["solve", "issue-001", "--harness", "v9"])
+
+    def test_sandbox_doctor_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class Report:
+            ok = False
+            docker_path = None
+            daemon_reachable = False
+            server_os = None
+            linux_containers = False
+            image = "issue-pilot-sandbox:py312"
+            image_present = False
+            dockerfile_present = True
+            requirements_present = True
+            warnings: list[str] = []
+            errors = ["Docker CLI not found"]
+
+            def to_dict(self) -> dict[str, Any]:
+                return {"ok": False, "errors": self.errors}
+
+        monkeypatch.setattr(cli, "doctor", lambda **kwargs: Report())
+        code = cli.main(["sandbox", "doctor"])
+        assert code == 1
