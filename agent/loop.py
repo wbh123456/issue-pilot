@@ -32,6 +32,8 @@ def run_agent(
     max_steps: int = MAX_AGENT_STEPS,
     workflow_context: str | None = None,
     sandbox: SandboxRunner | None = None,
+    tools: list | None = None,
+    search_code_enabled: bool = False,
 ) -> dict:
     """Run the V0 ReAct tool loop.
 
@@ -41,7 +43,12 @@ def run_agent(
 
     ``sandbox`` is runtime configuration (not part of the result contract).
     Command tools require it; file tools do not.
+
+    ``tools`` defaults to the six V0/V1 tools. V2 passes ``V2_TOOLS``.
+    ``search_code_enabled`` must stay false on V0/V1 so a hallucinated
+    ``search_code`` call returns ``unknown tool``.
     """
+    tool_schemas = tools if tools is not None else TOOLS
     user_content = f"Fix this issue:\n\n{issue}"
     if workflow_context:
         user_content += f"\n\nWorkflow context:\n{workflow_context}"
@@ -64,7 +71,7 @@ def run_agent(
         response = client.chat.completions.create(
             model=model,
             messages=messages,
-            tools=TOOLS,
+            tools=tool_schemas,
             tool_choice="auto",
             temperature=0,
         )
@@ -106,6 +113,7 @@ def run_agent(
                     repo_path=repo_path,
                     test_command=test_command,
                     sandbox=sandbox,
+                    search_code_enabled=search_code_enabled,
                 )
             except json.JSONDecodeError as exc:
                 args = {}

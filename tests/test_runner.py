@@ -11,7 +11,7 @@ import pytest
 
 import cli
 import eval.runner as runner
-from eval.runner import _normalize_harness, save_run, solve_task
+from eval.runner import _normalize_harness, _run_harness, save_run, solve_task
 from sandbox.runner import SandboxError, SandboxMetadata
 
 
@@ -87,7 +87,7 @@ def _agent_result(harness: str) -> dict[str, Any]:
         "messages": [],
         "llm_calls": 4 if harness == "v0" else 7,
     }
-    if harness == "v1":
+    if harness in {"v1", "v2"}:
         base.update(
             {
                 "analysis": "analysis",
@@ -98,17 +98,115 @@ def _agent_result(harness: str) -> dict[str, Any]:
                 "workflow_passed": True,
             }
         )
+    if harness == "v2":
+        base.update(
+            {
+                "relevant_files": ["app/auth.py"],
+                "retrieval_calls": 1,
+            }
+        )
     return base
 
 
 class TestHarnessNormalization:
-    def test_accepts_v0_v1(self) -> None:
+    def test_accepts_v0_v1_v2(self) -> None:
         assert _normalize_harness("v0") == "v0"
         assert _normalize_harness("V1") == "v1"
+        assert _normalize_harness("v2") == "v2"
 
     def test_rejects_unknown(self) -> None:
         with pytest.raises(ValueError, match="harness_version"):
-            _normalize_harness("v2")
+            _normalize_harness("v3")
+
+
+class TestRunHarness:
+    def test_v0_uses_run_agent_without_search_code(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_agent(**kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return _agent_result("v0")
+
+        monkeypatch.setattr(runner, "run_agent", fake_agent)
+        monkeypatch.setattr(
+            runner,
+            "run_workflow",
+            lambda **kwargs: (_ for _ in ()).throw(AssertionError("v1/v2")),
+        )
+        out = _run_harness(
+            harness="v0",
+            client=object(),
+            issue="i",
+            repo_path="p",
+            test_command="pytest -q",
+            model="m",
+            max_steps=5,
+        )
+        assert "tools" not in seen
+        assert "search_code_enabled" not in seen
+        assert out["final_answer"] == "done via v0"
+
+    def test_v1_does_not_enable_search_code(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_workflow(**kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return _agent_result("v1")
+
+        monkeypatch.setattr(runner, "run_workflow", fake_workflow)
+        monkeypatch.setattr(
+            runner,
+            "get_v2_graph",
+            lambda: (_ for _ in ()).throw(AssertionError("v2 graph")),
+        )
+        out = _run_harness(
+            harness="v1",
+            client=object(),
+            issue="i",
+            repo_path="p",
+            test_command="pytest -q",
+            model="m",
+            max_steps=5,
+        )
+        assert "graph" not in seen
+        assert seen.get("enable_search_code") is None
+        assert "relevant_files" not in out
+
+    def test_v2_uses_v2_graph_and_enables_search_code(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+        fake_graph = object()
+
+        def fake_workflow(**kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return _agent_result("v2")
+
+        monkeypatch.setattr(runner, "run_workflow", fake_workflow)
+        monkeypatch.setattr(runner, "get_v2_graph", lambda: fake_graph)
+        monkeypatch.setattr(
+            runner,
+            "run_agent",
+            lambda **kwargs: (_ for _ in ()).throw(AssertionError("v0")),
+        )
+        out = _run_harness(
+            harness="v2",
+            client=object(),
+            issue="i",
+            repo_path="p",
+            test_command="pytest -q",
+            model="m",
+            max_steps=5,
+            sandbox=object(),
+        )
+        assert seen["graph"] is fake_graph
+        assert seen["enable_search_code"] is True
+        assert out["relevant_files"] == ["app/auth.py"]
+        assert out["retrieval_calls"] == 1
 
 
 class TestSaveRun:
@@ -201,7 +299,44 @@ class TestSolveTaskDispatch:
         assert record["plan"]["steps"] == ["a"]
         assert record["workflow_passed"] is True
         assert record["verification"]["exit_code"] == 0
+        assert "retrieval_mode" not in record
+        assert "recall_at_5" not in record
         assert Path(record["run_path"]).name.startswith("issue-001-v1-")
+
+    def test_dispatches_v2_and_records_retrieval_fields(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
+    ) -> None:
+        monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
+        task = _fake_task()
+
+        with (
+            patch.object(runner, "get_task", return_value=task),
+            patch.object(runner, "resolve_repo_path", return_value=Path(task["repo_path"])),
+            patch.object(runner, "reset_repo"),
+            patch.object(runner, "_run_harness", return_value=_agent_result("v2")) as harness_mock,
+            patch.object(
+                runner,
+                "run_gold_test",
+                return_value={
+                    "command": "pytest ...",
+                    "exit_code": 0,
+                    "passed": True,
+                    "output": "exit_code=0",
+                },
+            ),
+            patch.object(runner, "create_client", return_value=object()),
+            patch.object(runner, "default_model", return_value="fake-model"),
+        ):
+            record = solve_task("issue-001", harness_version="v2")
+
+        assert harness_mock.call_args.kwargs["harness"] == "v2"
+        assert record["harness_version"] == "v2"
+        assert record["workflow_passed"] is True
+        assert record["retrieval_mode"] == "hybrid"
+        assert record["retrieval_calls"] == 1
+        assert record["relevant_files"] == ["app/auth.py"]
+        assert record["recall_at_5"] == 1.0
+        assert Path(record["run_path"]).name.startswith("issue-001-v2-")
 
     def test_gold_success_independent_of_workflow_pass(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
@@ -477,6 +612,33 @@ class TestCLI:
         code = cli.main(["compare", "issue-001", "--max-steps", "12"])
         assert code == 0
         assert harnesses == ["v0", "v1"]
+
+    def test_solve_accepts_v2(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            seen["task_id"] = task_id
+            return {
+                "task_id": task_id,
+                "harness_version": kwargs.get("harness_version"),
+                "success": True,
+                "difficulty": "easy",
+                "termination": "completed",
+                "steps": 1,
+                "llm_calls": 1,
+                "tool_call_count": 0,
+                "file_reads": 0,
+                "tokens": 1,
+                "latency": 0.1,
+                "run_path": "runs/x.json",
+                "final_answer": "ok",
+            }
+
+        monkeypatch.setattr(cli, "solve_task", fake_solve)
+        code = cli.main(["solve", "issue-009", "--harness", "v2"])
+        assert code == 0
+        assert seen["harness_version"] == "v2"
 
     def test_rejects_invalid_harness_arg(self) -> None:
         with pytest.raises(SystemExit):

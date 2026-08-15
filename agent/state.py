@@ -37,8 +37,9 @@ class Telemetry(TypedDict, total=False):
     termination: str
     trajectory: list[Any]
     messages: list[Any]
-    # Per-stage usage: analyze / plan / execute / diagnose.
+    # Per-stage usage: analyze / retrieve / plan / execute / diagnose.
     stage_tokens: dict[str, dict[str, int]]
+    retrieval_calls: int
 
 
 # Optional: node visit log for debugging/eval; not required for routing.
@@ -63,10 +64,10 @@ class AgentState(TypedDict):
     diagnosis: NotRequired[str]
     status: NotRequired[str]
     telemetry: NotRequired[Telemetry]
+    relevant_files: NotRequired[list[str]]
+    retrieved_context: NotRequired[str]
 
     # --- optional (commented out to keep Phase 2 state minimal) ---
-    # Can be derived from plan.files_to_inspect:
-    # relevant_files: NotRequired[list[str]]
     # Can be derived from verify git_diff:
     # changed_files: NotRequired[list[str]]
     # Executor metrics can fold into telemetry + run JSON:
@@ -122,12 +123,9 @@ def initial_state(issue: str) -> AgentState:
             "llm_calls": 0,
             "steps": 0,
             "latency": 0.0,
+            "retrieval_calls": 0,
             "stage_tokens": {},
         },
-        # Optional fields (kept commented with AgentState):
-        # "relevant_files": [],
-        # "changed_files": [],
-        # "execution_result": {},
-        # "retry_count": 0,
-        # "workflow_trace": [],
+        "relevant_files": [],
+        "retrieved_context": "",
     }

@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from agent.tools import (
+    TOOLS,
+    V2_TOOLS,
     edit_file,
     execute_tool,
     git_diff,
@@ -16,6 +18,7 @@ from agent.tools import (
     list_files,
     read_file,
     run_tests,
+    search_code,
 )
 from agent.tools._sandbox import MAX_TOOL_OUTPUT, truncate_output
 from eval.repository import find_host_git
@@ -158,6 +161,68 @@ class TestGrep:
         out = grep_code(repo, "greet")
         assert "hello.py" in out
         assert "greet" in out
+
+
+def _tool_names(tools: list) -> list[str]:
+    return [t["function"]["name"] for t in tools]
+
+
+class TestSearchCode:
+    def test_v0_v1_tools_exclude_search_code(self) -> None:
+        names = _tool_names(TOOLS)
+        assert names == [
+            "list_files",
+            "read_file",
+            "grep_code",
+            "edit_file",
+            "run_tests",
+            "git_diff",
+        ]
+        assert "search_code" not in names
+        assert V2_TOOLS is not TOOLS
+        assert _tool_names(V2_TOOLS) == [*names, "search_code"]
+
+    def test_disabled_by_default(self, repo: Path) -> None:
+        out = execute_tool(
+            "search_code",
+            {"query": "greet"},
+            repo_path=str(repo),
+            test_command="pytest -q",
+        )
+        assert out == "Error: unknown tool: search_code"
+
+    def test_enabled_hybrid_search(self, repo: Path) -> None:
+        out = execute_tool(
+            "search_code",
+            {"query": "greet"},
+            repo_path=str(repo),
+            test_command="pytest -q",
+            search_code_enabled=True,
+        )
+        assert "hello.py" in out
+        assert "greet" in out
+
+    def test_empty_query(self, repo: Path) -> None:
+        assert search_code(repo, "").startswith("Error:")
+        out = execute_tool(
+            "search_code",
+            {"query": ""},
+            repo_path=str(repo),
+            test_command="pytest -q",
+            search_code_enabled=True,
+        )
+        assert out.startswith("Error:")
+
+    def test_skips_gold_staging(self, repo: Path) -> None:
+        gold = repo / "tests" / "_gold"
+        gold.mkdir(parents=True)
+        (gold / "secret.py").write_text(
+            "def leaked_gold_symbol():\n    return 1\n",
+            encoding="utf-8",
+        )
+        out = search_code(repo, "leaked_gold_symbol")
+        assert "_gold" not in out
+        assert "leaked_gold_symbol" not in out
 
 
 class TestEditFile:

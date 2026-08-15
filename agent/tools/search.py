@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from harness.context import RETRIEVE_K
+from retrieval.dense import Embedder, HashingEmbedder
+from retrieval.indexer import build_index
+
 from ._sandbox import (
     MAX_TOOL_OUTPUT,
     rel_to_repo,
@@ -60,3 +64,30 @@ def _grep_with_python(root: Path, query: str) -> str:
                     return "\n".join(matches)
 
     return "\n".join(matches) if matches else "(no matches)"
+
+
+def search_code(
+    repo_path: str | Path,
+    query: str,
+    *,
+    embedder: Embedder | None = None,
+    k: int = RETRIEVE_K,
+) -> str:
+    """Hybrid symbol search. Host-side, same trust class as ``grep_code``."""
+    if not query or not str(query).strip():
+        return "Error: query is required"
+
+    resolve_repo_root(repo_path)
+    index = build_index(repo_path, embedder=embedder or HashingEmbedder())
+    chunks = index.search_hybrid(str(query).strip(), k=k)
+    if not chunks:
+        return "(no matches)"
+
+    parts: list[str] = []
+    for chunk in chunks:
+        header = (
+            f"{chunk.path}:{chunk.start_line}-{chunk.end_line}:"
+            f"{chunk.symbol} ({chunk.type})"
+        )
+        parts.append(f"{header}\n{chunk.text}")
+    return truncate_output("\n\n".join(parts))

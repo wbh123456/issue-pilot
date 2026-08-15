@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 from agent.client import create_client, default_model
-from agent.graph import run_workflow
+from agent.graph import get_v2_graph, run_workflow
 from agent.loop import run_agent
 from agent.tools.shell import run_tests
+from eval.metrics import recall_at_k
 from eval.repository import GOLD_STAGING_DIRNAME, reset_repo
 from harness.limits import MAX_AGENT_STEPS
 from sandbox.image import DEFAULT_IMAGE
@@ -24,7 +25,7 @@ DATASET_PATH = HARNESS_ROOT / "eval" / "dataset.json"
 GOLD_DIR = HARNESS_ROOT / "eval" / "gold"
 RUNS_DIR = HARNESS_ROOT / "runs"
 
-HarnessVersion = Literal["v0", "v1"]
+HarnessVersion = Literal["v0", "v1", "v2"]
 
 
 def load_dataset(path: Path = DATASET_PATH) -> list[dict[str, Any]]:
@@ -113,9 +114,9 @@ def run_gold_test(
 
 def _normalize_harness(harness_version: str) -> HarnessVersion:
     value = (harness_version or "v0").strip().lower()
-    if value not in {"v0", "v1"}:
+    if value not in {"v0", "v1", "v2"}:
         raise ValueError(
-            f"harness_version must be 'v0' or 'v1', got {harness_version!r}"
+            f"harness_version must be 'v0', 'v1', or 'v2', got {harness_version!r}"
         )
     return value  # type: ignore[return-value]
 
@@ -150,6 +151,16 @@ def _run_harness(
             max_steps=max_steps,
             sandbox=sandbox,
         )
+    if harness == "v1":
+        return run_workflow(
+            client=client,
+            issue=issue,
+            repo_path=repo_path,
+            test_command=test_command,
+            model=model,
+            max_steps=max_steps,
+            sandbox=sandbox,
+        )
     return run_workflow(
         client=client,
         issue=issue,
@@ -158,6 +169,8 @@ def _run_harness(
         model=model,
         max_steps=max_steps,
         sandbox=sandbox,
+        graph=get_v2_graph(),
+        enable_search_code=True,
     )
 
 
@@ -176,6 +189,8 @@ def _empty_agent_result() -> dict[str, Any]:
         "messages": [],
         "llm_calls": 0,
         "stage_tokens": {},
+        "relevant_files": [],
+        "retrieval_calls": 0,
     }
 
 
@@ -234,8 +249,8 @@ def solve_task(
 ) -> dict[str, Any]:
     """Full harness cycle for one dataset task.
 
-    Flow: reset repo → enter one sandbox → run V0/V1 → gold test → cleanup.
-    Gold scoring stays independent of V0/V1 workflow verification.
+    Flow: reset repo → enter one sandbox → run V0/V1/V2 → gold test → cleanup.
+    Gold scoring stays independent of workflow verification.
     Sandbox startup or execution failures still produce a versioned run artifact.
     """
     harness = _normalize_harness(harness_version)
@@ -351,7 +366,7 @@ def solve_task(
         record["gold_error_type"] = gold_error_type
         record["gold_error_message"] = gold_error_message
 
-    if harness == "v1":
+    if harness in {"v1", "v2"}:
         record.update(
             {
                 "analysis": agent_result.get("analysis", ""),
@@ -361,6 +376,17 @@ def solve_task(
                 "status": agent_result.get("status", ""),
                 "workflow_passed": agent_result.get("workflow_passed"),
                 "stage_tokens": agent_result.get("stage_tokens", {}),
+            }
+        )
+    if harness == "v2":
+        relevant = list(agent_result.get("relevant_files") or [])
+        expected = list(task.get("expected_files") or [])
+        record.update(
+            {
+                "retrieval_mode": "hybrid",
+                "retrieval_calls": agent_result.get("retrieval_calls", 0),
+                "relevant_files": relevant,
+                "recall_at_5": recall_at_k(relevant, expected, k=5),
             }
         )
 

@@ -3,6 +3,7 @@
 Usage:
     python cli.py solve issue-001
     python cli.py solve issue-001 --harness v1
+    python cli.py solve issue-009 --harness v2
     python cli.py compare issue-001
     python cli.py retrieve issue-009
     python cli.py retrieve --split hard
@@ -45,9 +46,9 @@ def _build_parser() -> argparse.ArgumentParser:
     solve.add_argument("task_id", help="Task id from eval/dataset.json, e.g. issue-001")
     solve.add_argument(
         "--harness",
-        choices=("v0", "v1"),
+        choices=("v0", "v1", "v2"),
         default="v0",
-        help="Harness version: v0 ReAct loop or v1 LangGraph Plan-Execute (default: v0)",
+        help="Harness version: v0 ReAct, v1 Plan-Execute, v2 Plan-Execute + RAG (default: v0)",
     )
     solve.add_argument(
         "--model",

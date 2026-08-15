@@ -193,6 +193,29 @@ class TestPlanValidation:
         assert result["plan"]["files_to_inspect"] == ["app/auth.py"]
 
 
+    def test_plan_prompt_prefers_retrieved_snippets(self) -> None:
+        client = FakeClient([_Response(json.dumps(VALID_PLAN))])
+        state = initial_state("bug")
+        state["relevant_files"] = ["app/inventory.py"]
+        state["retrieved_context"] = (
+            "### app/inventory.py  allocate_bin\ndef allocate_bin():\n    return 1"
+        )
+        with (
+            patch("agent.nodes.plan.list_files") as list_mock,
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+        ):
+            structured_plan(state, _config(client))
+
+        user = client.calls[0]["messages"][1]["content"]
+        assert "Retrieved code" in user
+        assert "allocate_bin" in user
+        assert "Repository inventory" not in user
+        list_mock.assert_not_called()
+
+
 class TestExecuteContext:
     def test_workflow_context_is_plan_only(self) -> None:
         state = initial_state("bug")
@@ -202,6 +225,18 @@ class TestExecuteContext:
         assert "long analysis" not in context
         assert '"plan"' in context
         assert "Ignore plan paths" in context
+        payload = json.loads(context)
+        assert set(payload) == {"plan", "guardrail"}
+
+    def test_workflow_context_includes_retrieved_snippets(self) -> None:
+        state = initial_state("bug")
+        state["plan"] = VALID_PLAN
+        state["relevant_files"] = ["app/inventory.py"]
+        state["retrieved_context"] = "### app/inventory.py  allocate_bin"
+        payload = json.loads(_workflow_context(state))
+        assert payload["retrieved"] == "### app/inventory.py  allocate_bin"
+        assert payload["relevant_files"] == ["app/inventory.py"]
+        assert "plan" in payload
 
 
 class TestRouting:
@@ -286,7 +321,11 @@ class TestWorkflowGraph:
         assert "execute" in result["stage_tokens"]
         assert result["stage_tokens"]["execute"]["llm_calls"] == 3
         run_agent_mock.assert_called_once()
-        payload = json.loads(run_agent_mock.call_args.kwargs["workflow_context"])
+        exec_kwargs = run_agent_mock.call_args.kwargs
+        assert exec_kwargs.get("search_code_enabled") is False
+        exec_tools = [t["function"]["name"] for t in exec_kwargs["tools"]]
+        assert "search_code" not in exec_tools
+        payload = json.loads(exec_kwargs["workflow_context"])
         assert "plan" in payload
         assert "analysis" not in payload
         assert "guardrail" in payload
@@ -478,6 +517,9 @@ class TestV0Seam:
         }
         assert result["final_answer"] == "all done"
         assert "tools" in client.calls[0]
+        tool_names = [t["function"]["name"] for t in client.calls[0]["tools"]]
+        assert "search_code" not in tool_names
+        assert len(tool_names) == 6
 
     def test_workflow_context_appended_when_provided(self) -> None:
         client = FakeClient([_Response("done")])

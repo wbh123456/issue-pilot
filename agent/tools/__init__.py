@@ -3,16 +3,18 @@
 from .execute import execute_tool
 from .filesystem import edit_file, list_files, read_file
 from .git import git_diff
-from .schema import TOOLS
-from .search import grep_code
+from .schema import TOOLS, V2_TOOLS
+from .search import grep_code, search_code
 from .shell import run_tests
 
 __all__ = [
     "TOOLS",
+    "V2_TOOLS",
     "execute_tool",
     "list_files",
     "read_file",
     "grep_code",
+    "search_code",
     "edit_file",
     "run_tests",
     "git_diff",

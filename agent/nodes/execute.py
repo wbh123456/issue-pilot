@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from agent.loop import run_agent
 from agent.state import AgentState
+from agent.tools.schema import TOOLS, V2_TOOLS
 from harness.limits import MAX_AGENT_STEPS
 
 from ._runtime import merge_telemetry, require_config
@@ -19,17 +20,24 @@ _EXECUTOR_GUARDRAIL = (
 
 
 def _workflow_context(state: AgentState) -> str:
-    """Pass only the structured plan (no duplicated analysis prose)."""
+    """Pass the structured plan; V2 also includes retrieved snippets."""
     plan = state.get("plan") or {}
     payload = {
         "plan": plan,
         "guardrail": _EXECUTOR_GUARDRAIL,
     }
+    snippets = (state.get("retrieved_context") or "").strip()
+    if snippets:
+        payload["retrieved"] = snippets
+    files = [p for p in (state.get("relevant_files") or []) if p]
+    if files:
+        payload["relevant_files"] = files
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
     cfg = require_config(config, "client", "model", "repo_path", "test_command")
+    enable_search = bool(cfg.get("enable_search_code"))
     result = run_agent(
         client=cfg["client"],
         issue=state["issue"],
@@ -39,11 +47,18 @@ def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
         max_steps=int(cfg.get("max_steps", MAX_AGENT_STEPS)),
         workflow_context=_workflow_context(state),
         sandbox=cfg.get("sandbox"),
+        tools=V2_TOOLS if enable_search else TOOLS,
+        search_code_enabled=enable_search,
     )
 
     prompt_tokens = int(result.get("prompt_tokens", 0) or 0)
     completion_tokens = int(result.get("completion_tokens", 0) or 0)
     exec_steps = int(result.get("steps", 0) or 0)
+    search_calls = sum(
+        1
+        for event in (result.get("trajectory") or [])
+        if (event or {}).get("tool") == "search_code"
+    )
 
     # Fold executor outputs into telemetry (execution_result is optional/omitted).
     telemetry = merge_telemetry(
@@ -55,6 +70,7 @@ def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
         steps=exec_steps,
         latency=result.get("latency", 0.0),
         llm_calls=exec_steps,
+        retrieval_calls=search_calls,
         final_answer=result.get("final_answer", ""),
         termination=result.get("termination", ""),
         trajectory=result.get("trajectory", []),

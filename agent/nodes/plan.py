@@ -74,13 +74,24 @@ def _filter_existing_files(repo_path: str, paths: list[str]) -> list[str]:
     return kept
 
 
+def _planner_grounding(state: AgentState, repo_path: str) -> tuple[str, str]:
+    """V2 uses retrieved snippets; V1 falls back to a directory inventory."""
+    snippets = (state.get("retrieved_context") or "").strip()
+    files = [p for p in (state.get("relevant_files") or []) if p]
+    if snippets or files:
+        listing = "\n".join(f"- {path}" for path in files) or "(none)"
+        body = f"Relevant files:\n{listing}\n\nSnippets:\n{snippets or '(none)'}"
+        return "Retrieved code (prefer these over a directory listing)", body
+    return "Repository inventory (authoritative)", _repo_inventory(repo_path)
+
+
 def structured_plan(state: AgentState, config: RunnableConfig) -> dict:
     cfg = require_config(config, "client", "model", "repo_path")
     client = cfg["client"]
     model = cfg["model"]
     repo_path = str(cfg["repo_path"])
     analysis = state.get("analysis") or ""
-    inventory = _repo_inventory(repo_path)
+    heading, grounding = _planner_grounding(state, repo_path)
 
     response = client.chat.completions.create(
         model=model,
@@ -91,7 +102,7 @@ def structured_plan(state: AgentState, config: RunnableConfig) -> dict:
                 "content": (
                     f"Issue:\n{state['issue']}\n\n"
                     f"Analysis:\n{analysis}\n\n"
-                    f"Repository inventory (authoritative):\n{inventory}\n\n"
+                    f"{heading}:\n{grounding}\n\n"
                     "Produce the structured plan JSON now."
                 ),
             },

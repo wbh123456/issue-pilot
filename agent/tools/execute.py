@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from .filesystem import edit_file, list_files, read_file
 from .git import git_diff
-from .search import grep_code
+from .search import grep_code, search_code
 from .shell import run_tests
 
 if TYPE_CHECKING:
@@ -18,6 +18,7 @@ def execute_tool(
     repo_path: str,
     test_command: str,
     sandbox: SandboxRunner | None = None,
+    search_code_enabled: bool = False,
 ) -> str:
     if name == "list_files":
         return list_files(repo_path, args.get("path", "."))
@@ -25,6 +26,10 @@ def execute_tool(
         return read_file(repo_path, args["path"])
     if name == "grep_code":
         return grep_code(repo_path, args["query"])
+    if name == "search_code":
+        if not search_code_enabled:
+            return f"Error: unknown tool: {name}"
+        return search_code(repo_path, args.get("query") or "")
     if name == "edit_file":
         return edit_file(repo_path, **args)
     if name == "run_tests":

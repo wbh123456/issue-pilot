@@ -55,6 +55,7 @@ def merge_telemetry(state: AgentState, **deltas: Any) -> Telemetry:
             "llm_calls",
             "steps",
             "latency",
+            "retrieval_calls",
         }:
             current[key] = type(value)(current.get(key, 0) or 0) + value
         else:

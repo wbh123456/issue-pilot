@@ -1,4 +1,4 @@
-"""Compile and run the V1 LangGraph Plan-Execute workflow."""
+"""Compile and run the V1 / V2 LangGraph Plan-Execute workflow."""
 
 from __future__ import annotations
 
@@ -31,8 +31,12 @@ def route_after_verify(state: AgentState) -> Literal["mark_success", "diagnose"]
     return "diagnose"
 
 
-def build_graph():
-    """Build analyze → plan → execute → verify → (PASS | diagnose) → END."""
+def build_graph(*, include_retrieve: bool = False):
+    """Build analyze → [retrieve] → plan → execute → verify → (PASS | diagnose).
+
+    Default (``include_retrieve=False``) is the V1 graph. V2 inserts a
+    deterministic retrieve node between analyze and plan.
+    """
     graph = StateGraph(AgentState)
     graph.add_node("analyze", analyze_issue)
     graph.add_node("plan", structured_plan)
@@ -42,7 +46,14 @@ def build_graph():
     graph.add_node("mark_success", mark_success)
 
     graph.add_edge(START, "analyze")
-    graph.add_edge("analyze", "plan")
+    if include_retrieve:
+        from agent.nodes.retrieve import retrieve_context
+
+        graph.add_node("retrieve", retrieve_context)
+        graph.add_edge("analyze", "retrieve")
+        graph.add_edge("retrieve", "plan")
+    else:
+        graph.add_edge("analyze", "plan")
     graph.add_edge("plan", "execute")
     graph.add_edge("execute", "verify")
     graph.add_conditional_edges(
@@ -59,14 +70,23 @@ def build_graph():
 
 
 _GRAPH = None
+_V2_GRAPH = None
 
 
 def get_graph():
-    """Return a process-wide compiled graph (lazy singleton)."""
+    """Return the V1 compiled graph (process-wide lazy singleton)."""
     global _GRAPH
     if _GRAPH is None:
         _GRAPH = build_graph()
     return _GRAPH
+
+
+def get_v2_graph():
+    """Return the V2 compiled graph (analyze → retrieve → plan). Separate singleton."""
+    global _V2_GRAPH
+    if _V2_GRAPH is None:
+        _V2_GRAPH = build_graph(include_retrieve=True)
+    return _V2_GRAPH
 
 
 def adapt_result(state: AgentState) -> dict[str, Any]:
@@ -104,6 +124,8 @@ def adapt_result(state: AgentState) -> dict[str, Any]:
         "status": status,
         "llm_calls": telemetry.get("llm_calls", 0),
         "workflow_passed": passed,
+        "relevant_files": state.get("relevant_files") or [],
+        "retrieval_calls": telemetry.get("retrieval_calls", 0),
     }
 
 
@@ -117,9 +139,13 @@ def run_workflow(
     max_steps: int = MAX_AGENT_STEPS,
     graph=None,
     sandbox=None,
+    enable_search_code: bool = False,
+    embedder_name: str = "hashing",
 ) -> dict[str, Any]:
-    """Invoke the V1 graph and return evaluator-compatible result keys.
+    """Invoke the compiled graph and return evaluator-compatible result keys.
 
+    Defaults to the V1 singleton. Pass ``graph=get_v2_graph()`` and
+    ``enable_search_code=True`` for V2.
     Runtime objects (LLM client, SandboxRunner) stay in ``configurable``,
     not in serializable ``AgentState``.
     """
@@ -135,6 +161,8 @@ def run_workflow(
                 "test_command": test_command,
                 "max_steps": max_steps,
                 "sandbox": sandbox,
+                "enable_search_code": enable_search_code,
+                "embedder_name": embedder_name,
             }
         },
     )

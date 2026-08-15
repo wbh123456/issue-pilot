@@ -126,3 +126,29 @@ TOOLS = [
         },
     },
 ]
+
+SEARCH_CODE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_code",
+        "description": (
+            "Hybrid (BM25 + dense) search over app/*.py symbols. "
+            "Use when a literal grep misses code because the issue and "
+            "implementation use different words. Returns ranked chunks "
+            "with path, symbol, and line range."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language or identifier query.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+# V0/V1 keep the original six tools. V2 appends search_code for ablation isolation.
+V2_TOOLS = [*TOOLS, SEARCH_CODE_TOOL]
