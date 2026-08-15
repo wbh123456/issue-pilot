@@ -5,3 +5,6 @@ pytest
 langgraph
 langchain-core
 pydantic
+numpy
+rank-bm25
+fastembed
