@@ -15,12 +15,17 @@ from agent.nodes import (
     structured_plan,
 )
 from agent.state import AgentState, initial_state
-from harness.limits import MAX_AGENT_STEPS
+from harness.limits import MAX_AGENT_STEPS, MAX_RETRY
 
 
 def mark_success(state: AgentState) -> dict:
     """Terminal PASS node — status only; no LLM call."""
     return {"status": "success"}
+
+
+def mark_needs_human(state: AgentState) -> dict:
+    """Terminal escalation after the retry budget is exhausted."""
+    return {"status": "needs_human"}
 
 
 def route_after_verify(state: AgentState) -> Literal["mark_success", "diagnose"]:
@@ -31,8 +36,15 @@ def route_after_verify(state: AgentState) -> Literal["mark_success", "diagnose"]
     return "diagnose"
 
 
+def route_after_diagnose(state: AgentState) -> Literal["execute", "mark_needs_human"]:
+    """Re-execute while ``retry_count < MAX_RETRY``; otherwise escalate."""
+    if int(state.get("retry_count") or 0) >= MAX_RETRY:
+        return "mark_needs_human"
+    return "execute"
+
+
 def build_graph(*, include_retrieve: bool = False):
-    """Build analyze → [retrieve] → plan → execute → verify → (PASS | diagnose).
+    """Build analyze → [retrieve] → plan → execute → verify → (PASS | diagnose → retry | human).
 
     Default (``include_retrieve=False``) is the V1 graph. V2 inserts a
     deterministic retrieve node between analyze and plan.
@@ -44,6 +56,7 @@ def build_graph(*, include_retrieve: bool = False):
     graph.add_node("verify", deterministic_verify)
     graph.add_node("diagnose", diagnose_failure)
     graph.add_node("mark_success", mark_success)
+    graph.add_node("mark_needs_human", mark_needs_human)
 
     graph.add_edge(START, "analyze")
     if include_retrieve:
@@ -65,7 +78,15 @@ def build_graph(*, include_retrieve: bool = False):
         },
     )
     graph.add_edge("mark_success", END)
-    graph.add_edge("diagnose", END)
+    graph.add_conditional_edges(
+        "diagnose",
+        route_after_diagnose,
+        {
+            "execute": "execute",
+            "mark_needs_human": "mark_needs_human",
+        },
+    )
+    graph.add_edge("mark_needs_human", END)
     return graph.compile()
 
 
@@ -98,6 +119,8 @@ def adapt_result(state: AgentState) -> dict[str, Any]:
 
     if status == "success" or passed:
         termination = "completed"
+    elif status == "needs_human":
+        termination = "needs_human"
     elif status == "failed":
         termination = "failed"
     else:
@@ -126,6 +149,10 @@ def adapt_result(state: AgentState) -> dict[str, Any]:
         "workflow_passed": passed,
         "relevant_files": state.get("relevant_files") or [],
         "retrieval_calls": telemetry.get("retrieval_calls", 0),
+        "retry_count": int(state.get("retry_count") or 0),
+        "query_mode": telemetry.get("query_mode"),
+        "embedder_name": telemetry.get("embedder_name"),
+        "retrieve_query": telemetry.get("retrieve_query"),
     }
 
 
@@ -141,6 +168,7 @@ def run_workflow(
     sandbox=None,
     enable_search_code: bool = False,
     embedder_name: str = "hashing",
+    query_mode: str = "issue",
 ) -> dict[str, Any]:
     """Invoke the compiled graph and return evaluator-compatible result keys.
 
@@ -163,6 +191,7 @@ def run_workflow(
                 "sandbox": sandbox,
                 "enable_search_code": enable_search_code,
                 "embedder_name": embedder_name,
+                "query_mode": query_mode,
             }
         },
     )

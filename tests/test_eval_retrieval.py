@@ -81,6 +81,15 @@ class TestGrepBaseline:
         assert ranked[0] == "app/validators.py"
         assert "app/orders.py" in ranked
 
+    def test_ignores_hits_outside_app_python(self, repo: Path) -> None:
+        _write(repo, "tests/test_inventory_orders.py", "widget\n" * 40)
+        _write(repo, "README.md", "widget widget widget\n")
+        ranked = rank_files_by_grep(repo, "please find the widget")
+        assert ranked
+        assert all(path.startswith("app/") and path.endswith(".py") for path in ranked)
+        assert "tests/test_inventory_orders.py" not in ranked
+        assert "README.md" not in ranked
+
     def test_is_not_the_same_as_bm25(self, repo: Path) -> None:
         record = evaluate_repo(
             {
@@ -108,6 +117,8 @@ class TestEvaluateRepo:
         )
         assert set(record["modes"]) == set(ALL_MODES)
         assert record["embedder"] == "HashingEmbedder"
+        assert record["query_mode"] == "issue"
+        assert record["query"] == _task(repo)["issue"]
         assert record["chunk_count"] >= 1
         expected = ["app/inventory.py", "app/orders.py"]
         assert record["modes"]["bm25"]["recall_at_k"] == 1.0
@@ -118,6 +129,23 @@ class TestEvaluateRepo:
             assert len(files) <= 5
         assert "app/orders.py" in record["modes"]["bm25"]["retrieved_files"]
         assert expected == record["expected_files"]
+
+    def test_issue_plus_analysis_query(self, repo: Path) -> None:
+        record = evaluate_repo(
+            {
+                "id": "issue-toy",
+                "issue": "please find the widget",
+                "analysis": "look at allocate_bin",
+                "expected_files": ["app/inventory.py"],
+            },
+            repo,
+            embedder=HashingEmbedder(),
+            k=5,
+            query_mode="issue+analysis",
+        )
+        assert record["query_mode"] == "issue+analysis"
+        assert record["issue"] == "please find the widget"
+        assert record["query"] == "please find the widget\nlook at allocate_bin"
 
 
 class TestRunRetrievalEval:

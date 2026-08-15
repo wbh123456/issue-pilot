@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from agent.state import AgentState, PlanValidationError, parse_structured_plan
 from agent.tools._sandbox import resolve_in_repo
 from agent.tools.filesystem import list_files
+from harness.limits import AGENT_TEMPERATURE
 
 from ._runtime import merge_telemetry, require_config, stage_usage
 
@@ -107,7 +108,7 @@ def structured_plan(state: AgentState, config: RunnableConfig) -> dict:
                 ),
             },
         ],
-        temperature=0,
+        temperature=AGENT_TEMPERATURE,
     )
     raw = (response.choices[0].message.content or "").strip()
     telemetry = merge_telemetry(state, **stage_usage("plan", response))

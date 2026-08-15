@@ -8,7 +8,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent.graph import adapt_result, build_graph, route_after_verify, run_workflow
+from agent.graph import (
+    adapt_result,
+    build_graph,
+    route_after_diagnose,
+    route_after_verify,
+    run_workflow,
+)
 from agent.loop import run_agent
 from agent.nodes.execute import _workflow_context
 from agent.nodes.plan import _strip_code_fence, structured_plan
@@ -238,6 +244,15 @@ class TestExecuteContext:
         assert payload["relevant_files"] == ["app/inventory.py"]
         assert "plan" in payload
 
+    def test_workflow_context_includes_diagnosis_on_retry(self) -> None:
+        state = initial_state("bug")
+        state["plan"] = VALID_PLAN
+        state["diagnosis"] = "Need to catch IndexError."
+        state["retry_count"] = 1
+        payload = json.loads(_workflow_context(state))
+        assert payload["diagnosis"] == "Need to catch IndexError."
+        assert payload["retry_count"] == 1
+
 
 class TestRouting:
     def test_pass_and_fail_from_exit_code(self) -> None:
@@ -256,6 +271,11 @@ class TestRouting:
             },
         }
         assert route_after_verify(state) == "diagnose"
+
+    def test_diagnose_retries_until_budget(self) -> None:
+        assert route_after_diagnose({"retry_count": 0}) == "execute"
+        assert route_after_diagnose({"retry_count": 1}) == "execute"
+        assert route_after_diagnose({"retry_count": 2}) == "mark_needs_human"
 
 
 class TestWorkflowGraph:
@@ -333,12 +353,13 @@ class TestWorkflowGraph:
         assert len(client.calls) == 2  # analyze + plan only
         assert "Repository inventory" in client.calls[1]["messages"][1]["content"]
 
-    def test_fail_routes_through_diagnose_once(self) -> None:
+    def test_fail_retries_then_needs_human(self) -> None:
         client = FakeClient(
             [
                 _Response("analysis text"),
                 _Response(json.dumps(VALID_PLAN)),
                 _Response("Root cause: wrong exception handler."),
+                _Response("Still failing: patch did not cover the gold case."),
             ]
         )
         executor = {
@@ -351,7 +372,7 @@ class TestWorkflowGraph:
             "completion_tokens": 10,
             "tokens": 60,
             "latency": 0.2,
-            "trajectory": [],
+            "trajectory": [{"tool": "edit_file"}],
             "messages": [],
         }
 
@@ -361,7 +382,7 @@ class TestWorkflowGraph:
                 "agent.nodes.plan.resolve_in_repo",
                 side_effect=lambda repo, path: MagicMock(exists=lambda: True),
             ),
-            patch("agent.nodes.execute.run_agent", return_value=executor),
+            patch("agent.nodes.execute.run_agent", return_value=executor) as run_agent_mock,
             patch(
                 "agent.nodes.verify.run_tests",
                 return_value="exit_code=1\ncommand: pytest -q\nFAILED",
@@ -376,15 +397,76 @@ class TestWorkflowGraph:
                 graph=build_graph(),
             )
 
-        assert result["status"] == "failed"
+        assert result["status"] == "needs_human"
         assert result["workflow_passed"] is False
-        assert result["termination"] == "failed"
-        assert "Root cause" in result["diagnosis"]
+        assert result["termination"] == "needs_human"
+        assert result["retry_count"] == 2
+        assert "Still failing" in result["diagnosis"]
         assert result["test_result"]["exit_code"] == 1
-        # analyze + plan + diagnose
-        assert len(client.calls) == 3
-        assert result["llm_calls"] == 2 + 2 + 1
+        assert run_agent_mock.call_count == 2
+        assert "diagnosis" in json.loads(run_agent_mock.call_args.kwargs["workflow_context"])
+        assert len(client.calls) == 4
+        assert result["llm_calls"] == 2 + 4 + 2
         assert "diagnose" in result["stage_tokens"]
+        assert result["tool_call_count"] == 6
+        assert len(result["trajectory"]) == 2
+
+    def test_retry_then_pass(self) -> None:
+        client = FakeClient(
+            [
+                _Response("analysis text"),
+                _Response(json.dumps(VALID_PLAN)),
+                _Response("Retry with a 409 before indexing slots."),
+            ]
+        )
+        failed = {
+            "final_answer": "not yet",
+            "termination": "completed",
+            "steps": 1,
+            "tool_call_count": 2,
+            "file_reads": 1,
+            "prompt_tokens": 10,
+            "completion_tokens": 2,
+            "tokens": 12,
+            "latency": 0.1,
+            "trajectory": [{"tool": "edit_file"}],
+            "messages": [],
+        }
+        passed = {
+            **failed,
+            "final_answer": "fixed",
+            "trajectory": [{"tool": "run_tests"}],
+        }
+
+        with (
+            patch("agent.nodes.plan.list_files", side_effect=_fake_list_files),
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+            patch(
+                "agent.nodes.execute.run_agent",
+                side_effect=[failed, passed],
+            ),
+            patch(
+                "agent.nodes.verify.run_tests",
+                side_effect=["exit_code=1\nFAILED", "exit_code=0\nok"],
+            ),
+            patch("agent.nodes.verify.git_diff", return_value="(no changes)"),
+        ):
+            result = run_workflow(
+                client=client,
+                issue="bug",
+                repo_path="/tmp/repo",
+                test_command="pytest -q",
+                graph=build_graph(),
+            )
+
+        assert result["status"] == "success"
+        assert result["workflow_passed"] is True
+        assert result["retry_count"] == 1
+        assert "409" in result["diagnosis"]
+        assert result["final_answer"] == "fixed"
 
     def test_verify_pass_despite_model_claiming_failure_text(self) -> None:
         client = FakeClient(
@@ -559,4 +641,15 @@ class TestAdaptResult:
         assert out["workflow_passed"] is True
         assert out["tokens"] == 15
         assert out["plan"] == VALID_PLAN
+        assert out["retry_count"] == 0
         assert out["stage_tokens"]["analyze"]["llm_calls"] == 1
+
+    def test_needs_human_termination(self) -> None:
+        state = initial_state("bug")
+        state["status"] = "needs_human"
+        state["retry_count"] = 2
+        state["test_result"] = {"exit_code": 1, "passed": False}
+        out = adapt_result(state)
+        assert out["termination"] == "needs_human"
+        assert out["retry_count"] == 2
+        assert out["workflow_passed"] is False

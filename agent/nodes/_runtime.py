@@ -58,6 +58,8 @@ def merge_telemetry(state: AgentState, **deltas: Any) -> Telemetry:
             "retrieval_calls",
         }:
             current[key] = type(value)(current.get(key, 0) or 0) + value
+        elif key == "trajectory":
+            current[key] = list(current.get(key) or []) + list(value or [])
         else:
             current[key] = value
     current["tokens"] = int(current.get("prompt_tokens", 0) or 0) + int(

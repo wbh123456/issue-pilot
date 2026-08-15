@@ -1,7 +1,7 @@
 """Host-side code retrieval (AST chunks, BM25, dense, RRF). Not a V0/V1 tool."""
 
 from retrieval.chunker import Chunk, chunk_file, chunk_repo
-from retrieval.dense import FastEmbedEmbedder, HashingEmbedder
+from retrieval.dense import FastEmbedEmbedder, HashingEmbedder, make_embedder
 from retrieval.hybrid import reciprocal_rank_fusion
 from retrieval.indexer import CodeIndex, build_index
 
@@ -10,6 +10,7 @@ __all__ = [
     "CodeIndex",
     "FastEmbedEmbedder",
     "HashingEmbedder",
+    "make_embedder",
     "build_index",
     "chunk_file",
     "chunk_repo",

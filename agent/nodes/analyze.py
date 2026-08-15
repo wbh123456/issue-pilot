@@ -5,6 +5,7 @@ from __future__ import annotations
 from langchain_core.runnables import RunnableConfig
 
 from agent.state import AgentState
+from harness.limits import AGENT_TEMPERATURE
 
 from ._runtime import merge_telemetry, require_config, stage_usage
 
@@ -33,7 +34,7 @@ def analyze_issue(state: AgentState, config: RunnableConfig) -> dict:
                 "content": f"Analyze this issue:\n\n{state['issue']}",
             },
         ],
-        temperature=0,
+        temperature=AGENT_TEMPERATURE,
     )
     analysis = (response.choices[0].message.content or "").strip()
     if not analysis:

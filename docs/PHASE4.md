@@ -193,3 +193,7 @@ python cli.py compare issue-009
 ```
 
 Each solve: reset benchmark → one sandbox → harness → gold → cleanup. Retrieve eval resets once per `(repo, base_commit)` and does not start a container.
+
+## Later (not this phase)
+
+Retry, Docker `git_diff`, grep-scope alignment with the indexer, `solve --embedder` / `--query-mode`, and `python cli.py report` shipped after this write-up. See `docs/PHASE4-followup.md`. The bullets above remain what Phase 4 itself did not ship.

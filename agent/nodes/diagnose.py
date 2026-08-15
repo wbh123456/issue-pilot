@@ -1,4 +1,4 @@
-"""Diagnose node: one-shot failure analysis; does not re-execute."""
+"""Diagnose node: one-shot failure analysis; graph may re-execute after this."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import json
 from langchain_core.runnables import RunnableConfig
 
 from agent.state import AgentState
+from harness.limits import AGENT_TEMPERATURE, MAX_RETRY
 
 from ._runtime import merge_telemetry, require_config, stage_usage
 
@@ -19,7 +20,7 @@ Given the issue, plan, git diff, and failing test output, explain:
 3. what should be tried next
 
 Do not call tools. Do not edit code. Plain text only.
-This diagnosis will be recorded; it will not be executed again in this phase.
+If retries remain, the executor will run again with this diagnosis.
 """.strip()
 
 
@@ -53,14 +54,17 @@ def diagnose_failure(state: AgentState, config: RunnableConfig) -> dict:
             {"role": "system", "content": DIAGNOSE_SYSTEM},
             {"role": "user", "content": user_content},
         ],
-        temperature=0,
+        temperature=AGENT_TEMPERATURE,
     )
     diagnosis = (response.choices[0].message.content or "").strip()
     if not diagnosis:
         raise RuntimeError("Diagnose node returned empty content")
 
+    retry_count = int(state.get("retry_count") or 0) + 1
+    status = "failed" if retry_count >= MAX_RETRY else "retrying"
     return {
         "diagnosis": diagnosis,
-        "status": "failed",
+        "retry_count": retry_count,
+        "status": status,
         "telemetry": merge_telemetry(state, **stage_usage("diagnose", response)),
     }

@@ -7,10 +7,12 @@ Run explicitly with: pytest tests/test_sandbox_docker.py -m docker
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from eval.repository import find_host_git
 from harness.limits import MAX_TOOL_OUTPUT
 from harness.permissions import CommandPermissionError
 from sandbox.image import run_docker
@@ -125,3 +127,52 @@ class TestDockerSandbox:
                 raise RuntimeError("boom")
         assert name
         assert not _container_exists(name)
+
+    def test_git_diff_head_inside_container(
+        self, docker_preflight, live_workspace: Path
+    ) -> None:
+        git = find_host_git()
+        if git is None:
+            pytest.skip("host git is required to seed the workspace")
+        subprocess.run(
+            [git, "-C", str(live_workspace), "init"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [git, "-C", str(live_workspace), "config", "user.email", "test@example.com"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [git, "-C", str(live_workspace), "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [git, "-C", str(live_workspace), "add", "."],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [git, "-C", str(live_workspace), "commit", "-m", "init"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        (live_workspace / "visible.txt").write_text("changed\n", encoding="utf-8")
+
+        from agent.tools.git import git_diff
+
+        with SandboxRunner(live_workspace, task_id="itest-git") as sb:
+            diff = sb.run(["git", "diff", "HEAD"])
+            status = sb.run(["git", "status", "--short"])
+            out = git_diff(live_workspace, sandbox=sb)
+        assert diff.exit_code in (0, 1), diff.stderr or diff.stdout
+        assert status.exit_code == 0, status.stderr or status.stdout
+        assert not out.startswith("Error:")
+        assert "visible.txt" in out

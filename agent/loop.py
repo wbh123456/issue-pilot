@@ -4,7 +4,7 @@ import json
 import time
 from typing import TYPE_CHECKING
 
-from harness.limits import MAX_AGENT_STEPS
+from harness.limits import AGENT_TEMPERATURE, MAX_AGENT_STEPS
 from .tools import TOOLS, execute_tool
 
 if TYPE_CHECKING:
@@ -34,6 +34,7 @@ def run_agent(
     sandbox: SandboxRunner | None = None,
     tools: list | None = None,
     search_code_enabled: bool = False,
+    embedder=None,
 ) -> dict:
     """Run the V0 ReAct tool loop.
 
@@ -73,7 +74,7 @@ def run_agent(
             messages=messages,
             tools=tool_schemas,
             tool_choice="auto",
-            temperature=0,
+            temperature=AGENT_TEMPERATURE,
         )
 
         message = response.choices[0].message
@@ -114,6 +115,7 @@ def run_agent(
                     test_command=test_command,
                     sandbox=sandbox,
                     search_code_enabled=search_code_enabled,
+                    embedder=embedder,
                 )
             except json.JSONDecodeError as exc:
                 args = {}

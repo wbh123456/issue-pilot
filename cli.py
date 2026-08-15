@@ -7,6 +7,7 @@ Usage:
     python cli.py compare issue-001
     python cli.py retrieve issue-009
     python cli.py retrieve --split hard
+    python cli.py report --split hard
     python cli.py sandbox doctor
     python cli.py sandbox build
     python cli.py solve issue-002 --max-steps 20
@@ -25,6 +26,7 @@ from agent.client import default_model
 from eval.retrieval import ALL_MODES, run_retrieval_eval
 from harness.context import RETRIEVE_K
 from harness.limits import MAX_AGENT_STEPS
+from retrieval.query import DEFAULT_QUERY_MODE, QUERY_MODES
 from sandbox.image import DEFAULT_IMAGE, DockerPreflightError, build_image, doctor
 
 # force_terminal + utf-8-safe printing avoids Windows cp1252 crashes on arrows etc.
@@ -61,6 +63,19 @@ def _build_parser() -> argparse.ArgumentParser:
         default=MAX_AGENT_STEPS,
         help=f"Max executor ReAct steps (default: {MAX_AGENT_STEPS})",
     )
+    solve.add_argument(
+        "--embedder",
+        choices=("hashing", "fastembed"),
+        default="hashing",
+        help="V2 dense embedder (ignored by v0/v1). hashing = no download; "
+        "fastembed matches `retrieve` DoD (may download)",
+    )
+    solve.add_argument(
+        "--query-mode",
+        choices=QUERY_MODES,
+        default=DEFAULT_QUERY_MODE,
+        help="V2 retrieve query: issue (same as offline eval) or issue+analysis",
+    )
 
     retrieve = sub.add_parser(
         "retrieve",
@@ -88,7 +103,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--embedder",
         choices=("hashing", "fastembed"),
         default="fastembed",
-        help="Dense embedder: hashing (offline) or fastembed (live DoD; may download)",
+        help="Dense embedder: hashing (offline tests) or fastembed (DoD; may download)",
+    )
+    retrieve.add_argument(
+        "--query-mode",
+        choices=QUERY_MODES,
+        default=DEFAULT_QUERY_MODE,
+        help="Search query: issue (default, matches live V2) or issue+analysis",
     )
     retrieve.add_argument(
         "--no-reset",
@@ -111,6 +132,32 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=MAX_AGENT_STEPS,
         help=f"Max executor ReAct steps for both harnesses (default: {MAX_AGENT_STEPS})",
+    )
+
+    report = sub.add_parser(
+        "report",
+        help="Aggregate runs/*.json into provenance-aware ablation tables",
+    )
+    report.add_argument(
+        "--split",
+        choices=("smoke", "hard"),
+        default=None,
+        help="Keep only this dataset split",
+    )
+    report.add_argument(
+        "--base-commit",
+        default=None,
+        help="Keep only solve records with this benchmark SHA",
+    )
+    report.add_argument(
+        "--model",
+        default=None,
+        help="Keep only solve records with this model id",
+    )
+    report.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable report",
     )
 
     sandbox = sub.add_parser(
@@ -164,6 +211,9 @@ def _print_summary(record: dict) -> None:
         ("tool_call_count", str(record.get("tool_call_count"))),
         ("file_reads", str(record.get("file_reads"))),
         ("tokens", str(record.get("tokens"))),
+        ("retry_count", str(record.get("retry_count") if record.get("retry_count") is not None else "-")),
+        ("embedder", str(record.get("embedder_name") or "-")),
+        ("query_mode", str(record.get("query_mode") or "-")),
         ("latency_s", f"{float(record.get('latency') or 0):.2f}"),
         ("sandbox", str(record.get("sandbox_backend") or "-")),
         ("sandbox_image", str(record.get("sandbox_image") or "-")),
@@ -257,6 +307,68 @@ def _print_retrieval(result: dict) -> None:
             console.print(f"  run_path: {run_path}")
 
 
+def _print_report(report: dict) -> None:
+    filters = report.get("filters") or {}
+    title_bits = ["Ablation report"]
+    if filters.get("split"):
+        title_bits.append(f"split={filters['split']}")
+    if filters.get("base_commit"):
+        title_bits.append(str(filters["base_commit"])[:12])
+    for cohort in report.get("solve_cohorts") or []:
+        heading = (
+            f"{cohort.get('base_commit') or '-'}  "
+            f"model={cohort.get('model') or '-'}  "
+            f"T={cohort.get('temperature')}  "
+            f"image={cohort.get('sandbox_image') or '-'}  "
+            f"n={cohort.get('n')}"
+        )
+        table = Table(title=heading)
+        table.add_column("Harness")
+        table.add_column("n", justify="right")
+        table.add_column("Resolve", justify="right")
+        table.add_column("Tokens", justify="right")
+        table.add_column("Reads", justify="right")
+        table.add_column("Tools", justify="right")
+        table.add_column("Retries", justify="right")
+        table.add_column("Latency s", justify="right")
+        for row in cohort.get("harnesses") or []:
+            table.add_row(
+                str(row.get("harness_version")),
+                str(row.get("n")),
+                f"{float(row.get('resolve_rate') or 0):.2f}",
+                f"{float(row.get('tokens') or 0):.0f}",
+                f"{float(row.get('file_reads') or 0):.1f}",
+                f"{float(row.get('tool_calls') or 0):.1f}",
+                f"{float(row.get('retries') or 0):.2f}",
+                f"{float(row.get('latency_s') or 0):.1f}",
+            )
+        console.print(table)
+
+    retrieval = report.get("retrieval") or []
+    if retrieval:
+        table = Table(title="Retrieval Recall@K (saved artifacts)")
+        table.add_column("Task")
+        table.add_column("embedder")
+        table.add_column("query")
+        for mode in ALL_MODES:
+            table.add_column(mode, justify="right")
+        for row in retrieval:
+            cells = [
+                str(row.get("task_id") or "-"),
+                str(row.get("embedder") or "-"),
+                str(row.get("query_mode") or "-"),
+            ]
+            for mode in ALL_MODES:
+                score = row.get(mode)
+                cells.append(f"{float(score):.2f}" if score is not None else "-")
+            table.add_row(*cells)
+        console.print(table)
+
+    sha = report.get("harness_git_sha")
+    if sha:
+        console.print(f"[dim]harness_git_sha={sha}[/dim]")
+
+
 def _print_doctor(report) -> None:
     table = Table(title="Sandbox doctor")
     table.add_column("Check")
@@ -295,6 +407,8 @@ def main(argv: list[str] | None = None) -> int:
                 model=args.model,
                 max_steps=args.max_steps,
                 harness_version=args.harness,
+                embedder_name=args.embedder,
+                query_mode=args.query_mode,
             )
         except Exception as exc:
             console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")
@@ -348,12 +462,27 @@ def main(argv: list[str] | None = None) -> int:
                 split=args.split,
                 k=args.k,
                 embedder_name=args.embedder,
+                query_mode=args.query_mode,
                 reset=not args.no_reset,
             )
         except Exception as exc:
             console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")
             return 1
         _print_retrieval(result)
+        return 0
+
+    if args.command == "report":
+        from eval.report import build_report
+
+        report = build_report(
+            split=args.split,
+            base_commit=args.base_commit,
+            model=args.model,
+        )
+        if args.json:
+            console.print_json(json.dumps(report))
+        else:
+            _print_report(report)
         return 0
 
     if args.command == "sandbox":

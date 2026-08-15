@@ -77,3 +77,7 @@ python cli.py solve issue-002
 ```
 
 Benchmark stays at the shared buggy baseline; the harness resets to `base_commit` at the start of every `solve`.
+
+## Later note (do not mix with the table above)
+
+The current dataset is **11 tasks** (`issue-001`–`011`) on `base_commit` `4b2258b1d16e802aa9b4a82bcb4a2b0f3911f84c`. The Phase 1 table above is historical (8 tasks on `573d8b1`). Do not average resolve rates across those commits; use `python cli.py report`.

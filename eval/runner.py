@@ -15,8 +15,9 @@ from agent.graph import get_v2_graph, run_workflow
 from agent.loop import run_agent
 from agent.tools.shell import run_tests
 from eval.metrics import recall_at_k
-from eval.repository import GOLD_STAGING_DIRNAME, reset_repo
-from harness.limits import MAX_AGENT_STEPS
+from eval.repository import GOLD_STAGING_DIRNAME, git_sha, reset_repo
+from harness.limits import AGENT_TEMPERATURE, MAX_AGENT_STEPS
+from retrieval.query import DEFAULT_QUERY_MODE, normalize_query_mode
 from sandbox.image import DEFAULT_IMAGE
 from sandbox.runner import SandboxMetadata, SandboxRunner
 
@@ -140,6 +141,8 @@ def _run_harness(
     model: str,
     max_steps: int,
     sandbox=None,
+    embedder_name: str = "hashing",
+    query_mode: str = DEFAULT_QUERY_MODE,
 ) -> dict[str, Any]:
     if harness == "v0":
         return run_agent(
@@ -171,6 +174,8 @@ def _run_harness(
         sandbox=sandbox,
         graph=get_v2_graph(),
         enable_search_code=True,
+        embedder_name=embedder_name,
+        query_mode=query_mode,
     )
 
 
@@ -191,6 +196,7 @@ def _empty_agent_result() -> dict[str, Any]:
         "stage_tokens": {},
         "relevant_files": [],
         "retrieval_calls": 0,
+        "retry_count": 0,
     }
 
 
@@ -246,6 +252,8 @@ def solve_task(
     max_steps: int = MAX_AGENT_STEPS,
     client=None,
     harness_version: str = "v0",
+    embedder_name: str = "hashing",
+    query_mode: str = DEFAULT_QUERY_MODE,
 ) -> dict[str, Any]:
     """Full harness cycle for one dataset task.
 
@@ -258,6 +266,7 @@ def solve_task(
     repo_path = resolve_repo_path(task)
     model_name = model or default_model()
     llm = client or create_client()
+    retrieve_query_mode = normalize_query_mode(query_mode)
 
     reset_repo(repo_path, task["base_commit"])
 
@@ -281,6 +290,8 @@ def solve_task(
                     model=model_name,
                     max_steps=max_steps,
                     sandbox=sandbox,
+                    embedder_name=embedder_name,
+                    query_mode=retrieve_query_mode,
                 )
             except Exception as exc:
                 error_type = type(exc).__name__
@@ -340,6 +351,8 @@ def solve_task(
         "repo_path": str(repo_path),
         "expected_files": task.get("expected_files"),
         "model": model_name,
+        "temperature": AGENT_TEMPERATURE,
+        "harness_git_sha": git_sha(HARNESS_ROOT),
         "success": bool(gold and gold.get("passed")) and error_type is None,
         "gold_test": gold,
         "tool_call_count": agent_result.get("tool_call_count"),
@@ -376,6 +389,7 @@ def solve_task(
                 "status": agent_result.get("status", ""),
                 "workflow_passed": agent_result.get("workflow_passed"),
                 "stage_tokens": agent_result.get("stage_tokens", {}),
+                "retry_count": agent_result.get("retry_count", 0),
             }
         )
     if harness == "v2":
@@ -387,6 +401,9 @@ def solve_task(
                 "retrieval_calls": agent_result.get("retrieval_calls", 0),
                 "relevant_files": relevant,
                 "recall_at_5": recall_at_k(relevant, expected, k=5),
+                "embedder_name": embedder_name,
+                "query_mode": retrieve_query_mode,
+                "retrieve_query": agent_result.get("retrieve_query"),
             }
         )
 

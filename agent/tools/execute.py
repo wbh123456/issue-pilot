@@ -19,6 +19,7 @@ def execute_tool(
     test_command: str,
     sandbox: SandboxRunner | None = None,
     search_code_enabled: bool = False,
+    embedder=None,
 ) -> str:
     if name == "list_files":
         return list_files(repo_path, args.get("path", "."))
@@ -29,7 +30,9 @@ def execute_tool(
     if name == "search_code":
         if not search_code_enabled:
             return f"Error: unknown tool: {name}"
-        return search_code(repo_path, args.get("query") or "")
+        return search_code(
+            repo_path, args.get("query") or "", embedder=embedder
+        )
     if name == "edit_file":
         return edit_file(repo_path, **args)
     if name == "run_tests":

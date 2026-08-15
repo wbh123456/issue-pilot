@@ -25,8 +25,11 @@ RUN pip install --no-cache-dir -r /tmp/sandbox-requirements.txt \
 
 WORKDIR /workspace
 USER sandbox
-# Bind mounts from Windows/macOS often look "dubious" to git; allow /workspace only.
-RUN git config --global --add safe.directory /workspace
+# Bind mounts from Windows/macOS often look "dubious" to git; allow any path.
+# GIT_OPTIONAL_LOCKS avoids index.lock writes on the read-only rootfs.
+ENV GIT_OPTIONAL_LOCKS=0
+RUN git config --global --add safe.directory '*' \
+    && git config --global --add safe.directory /workspace
 
 # Detached task containers stay alive for repeated `docker exec`.
 CMD ["sleep", "infinity"]

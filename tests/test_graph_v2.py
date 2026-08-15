@@ -121,6 +121,8 @@ class TestGraphTopology:
         assert "retrieve" not in nodes
         assert ("analyze", "plan") in edges
         assert ("analyze", "retrieve") not in edges
+        assert ("diagnose", "execute") in edges
+        assert "mark_needs_human" in nodes
 
     def test_v2_inserts_retrieve_between_analyze_and_plan(self) -> None:
         compiled = build_graph(include_retrieve=True)
@@ -130,6 +132,8 @@ class TestGraphTopology:
         assert ("analyze", "retrieve") in edges
         assert ("retrieve", "plan") in edges
         assert ("analyze", "plan") not in edges
+        assert ("diagnose", "execute") in edges
+        assert "mark_needs_human" in nodes
 
     def test_singletons_are_distinct(self) -> None:
         v1 = get_graph()
@@ -170,6 +174,33 @@ class TestRetrieveNode:
         assert out["telemetry"]["retrieval_calls"] == 1
         assert out["telemetry"]["stage_tokens"]["retrieve"]["llm_calls"] == 0
         assert out["telemetry"]["llm_calls"] == 0
+        assert out["telemetry"]["query_mode"] == "issue"
+        assert out["telemetry"]["retrieve_query"] == state["issue"]
+        assert "indexes slots" not in out["telemetry"]["retrieve_query"]
+
+    def test_issue_plus_analysis_query(self, tmp_path: Path) -> None:
+        app = tmp_path / "app"
+        app.mkdir()
+        (app / "inventory.py").write_text(
+            "def allocate_bin(items):\n    return 'A1'\n",
+            encoding="utf-8",
+        )
+        state = initial_state("Ordering 50 widgets crashes with 500")
+        state["analysis"] = "allocate_bin indexes slots by qty and can throw."
+        config: dict[str, Any] = {
+            "configurable": {
+                "repo_path": str(tmp_path),
+                "embedder": HashingEmbedder(),
+                "embedder_name": "hashing",
+                "query_mode": "issue+analysis",
+            }
+        }
+        out = retrieve_context(state, config)
+        query = out["telemetry"]["retrieve_query"]
+        assert state["issue"] in query
+        assert "allocate_bin" in query
+        assert out["telemetry"]["query_mode"] == "issue+analysis"
+        assert out["telemetry"]["embedder_name"] == "hashing"
 
 
 class TestV2Workflow:

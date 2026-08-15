@@ -1772,15 +1772,15 @@ File Reads 是否下降？
 
 ✅ Retrieval Evaluation
 
-✅ Human-in-the-loop
+○ Human-in-the-loop
 
-✅ Checkpoint / Resume
+○ Checkpoint / Resume
 
 ✅ Observability
 
 ✅ Benchmark
 
-✅ Harness Ablation
+○ Harness Ablation
 ```
 
 ---

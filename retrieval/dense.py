@@ -43,6 +43,16 @@ class HashingEmbedder:
         return vec
 
 
+def make_embedder(name: str) -> Embedder:
+    """Construct an embedder from a CLI / run-record name."""
+    key = (name or "hashing").strip().lower()
+    if key in {"hashing", "hash"}:
+        return HashingEmbedder()
+    if key in {"fastembed", "bge"}:
+        return FastEmbedEmbedder()
+    raise ValueError(f"unknown embedder {name!r}; use 'hashing' or 'fastembed'")
+
+
 class FastEmbedEmbedder:
     """ONNX embedder for live retrieval eval. Do not construct in default pytest."""
 

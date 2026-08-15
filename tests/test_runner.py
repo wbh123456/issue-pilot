@@ -96,6 +96,7 @@ def _agent_result(harness: str) -> dict[str, Any]:
                 "test_result": {"exit_code": 0, "passed": True},
                 "status": "success",
                 "workflow_passed": True,
+                "retry_count": 0,
             }
         )
     if harness == "v2":
@@ -103,6 +104,7 @@ def _agent_result(harness: str) -> dict[str, Any]:
             {
                 "relevant_files": ["app/auth.py"],
                 "retrieval_calls": 1,
+                "retrieve_query": "Expired JWT returns 500 instead of 401",
             }
         )
     return base
@@ -202,9 +204,13 @@ class TestRunHarness:
             model="m",
             max_steps=5,
             sandbox=object(),
+            embedder_name="fastembed",
+            query_mode="issue+analysis",
         )
         assert seen["graph"] is fake_graph
         assert seen["enable_search_code"] is True
+        assert seen["embedder_name"] == "fastembed"
+        assert seen["query_mode"] == "issue+analysis"
         assert out["relevant_files"] == ["app/auth.py"]
         assert out["retrieval_calls"] == 1
 
@@ -248,6 +254,7 @@ class TestSolveTaskDispatch:
             ),
             patch.object(runner, "create_client", return_value=object()),
             patch.object(runner, "default_model", return_value="fake-model"),
+            patch.object(runner, "git_sha", return_value="deadbeef"),
         ):
             record = solve_task("issue-001", harness_version="v0", max_steps=9)
 
@@ -255,6 +262,8 @@ class TestSolveTaskDispatch:
         reset_mock.assert_called_once()
         assert record["harness_version"] == "v0"
         assert record["success"] is True
+        assert record["temperature"] == 0
+        assert record["harness_git_sha"] == "deadbeef"
         assert record["llm_calls"] == 4
         assert record["tokens"] == 120
         assert "analysis" not in record
@@ -299,6 +308,7 @@ class TestSolveTaskDispatch:
         assert record["plan"]["steps"] == ["a"]
         assert record["workflow_passed"] is True
         assert record["verification"]["exit_code"] == 0
+        assert record["retry_count"] == 0
         assert "retrieval_mode" not in record
         assert "recall_at_5" not in record
         assert Path(record["run_path"]).name.startswith("issue-001-v1-")
@@ -327,15 +337,26 @@ class TestSolveTaskDispatch:
             patch.object(runner, "create_client", return_value=object()),
             patch.object(runner, "default_model", return_value="fake-model"),
         ):
-            record = solve_task("issue-001", harness_version="v2")
+            record = solve_task(
+                "issue-001",
+                harness_version="v2",
+                embedder_name="fastembed",
+                query_mode="issue+analysis",
+            )
 
         assert harness_mock.call_args.kwargs["harness"] == "v2"
+        assert harness_mock.call_args.kwargs["embedder_name"] == "fastembed"
+        assert harness_mock.call_args.kwargs["query_mode"] == "issue+analysis"
         assert record["harness_version"] == "v2"
         assert record["workflow_passed"] is True
         assert record["retrieval_mode"] == "hybrid"
         assert record["retrieval_calls"] == 1
         assert record["relevant_files"] == ["app/auth.py"]
         assert record["recall_at_5"] == 1.0
+        assert record["embedder_name"] == "fastembed"
+        assert record["query_mode"] == "issue+analysis"
+        assert record["retrieve_query"] == "Expired JWT returns 500 instead of 401"
+        assert record["retry_count"] == 0
         assert Path(record["run_path"]).name.startswith("issue-001-v2-")
 
     def test_gold_success_independent_of_workflow_pass(
@@ -636,9 +657,51 @@ class TestCLI:
             }
 
         monkeypatch.setattr(cli, "solve_task", fake_solve)
-        code = cli.main(["solve", "issue-009", "--harness", "v2"])
+        code = cli.main(
+            [
+                "solve",
+                "issue-009",
+                "--harness",
+                "v2",
+                "--embedder",
+                "fastembed",
+                "--query-mode",
+                "issue+analysis",
+            ]
+        )
         assert code == 0
         assert seen["harness_version"] == "v2"
+        assert seen["embedder_name"] == "fastembed"
+        assert seen["query_mode"] == "issue+analysis"
+
+    def test_solve_v2_defaults_hashing_and_issue_query(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return {
+                "task_id": task_id,
+                "harness_version": kwargs.get("harness_version"),
+                "success": True,
+                "difficulty": "easy",
+                "termination": "completed",
+                "steps": 1,
+                "llm_calls": 1,
+                "tool_call_count": 0,
+                "file_reads": 0,
+                "tokens": 1,
+                "latency": 0.1,
+                "run_path": "runs/x.json",
+                "final_answer": "ok",
+            }
+
+        monkeypatch.setattr(cli, "solve_task", fake_solve)
+        code = cli.main(["solve", "issue-009", "--harness", "v2"])
+        assert code == 0
+        assert seen["embedder_name"] == "hashing"
+        assert seen["query_mode"] == "issue"
 
     def test_rejects_invalid_harness_arg(self) -> None:
         with pytest.raises(SystemExit):
@@ -690,6 +753,27 @@ class TestCLI:
         assert seen["embedder_name"] == "hashing"
         assert seen["k"] == 5
         assert seen["reset"] is True
+        assert seen["query_mode"] == "issue"
+
+    def test_report_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_report(**kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return {
+                "solve_cohorts": [],
+                "retrieval": [],
+                "filters": kwargs,
+                "harness_git_sha": "abc",
+            }
+
+        monkeypatch.setattr("eval.report.build_report", fake_report)
+        code = cli.main(
+            ["report", "--split", "hard", "--base-commit", "deadbeef", "--json"]
+        )
+        assert code == 0
+        assert seen["split"] == "hard"
+        assert seen["base_commit"] == "deadbeef"
 
     def test_sandbox_doctor_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class Report:

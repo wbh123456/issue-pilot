@@ -230,3 +230,7 @@ python cli.py compare issue-001
 ```
 
 Each solve: reset benchmark → one sandbox → harness → gold → cleanup. Compare = two solves = two containers.
+
+## Later (not this phase)
+
+Retry after diagnose is wired in `docs/PHASE4-followup.md`. The bullets above remain what Phase 3 itself did not ship.

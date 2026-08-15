@@ -66,14 +66,13 @@ class AgentState(TypedDict):
     telemetry: NotRequired[Telemetry]
     relevant_files: NotRequired[list[str]]
     retrieved_context: NotRequired[str]
+    retry_count: NotRequired[int]
 
     # --- optional (commented out to keep Phase 2 state minimal) ---
     # Can be derived from verify git_diff:
     # changed_files: NotRequired[list[str]]
     # Executor metrics can fold into telemetry + run JSON:
     # execution_result: NotRequired[dict[str, Any]]
-    # Phase 2 freezes retries at 0; enable for Day 5:
-    # retry_count: NotRequired[int]
     # Debug/eval aid; not required for routing correctness:
     # workflow_trace: NotRequired[list[WorkflowTraceEvent]]
 
@@ -128,4 +127,5 @@ def initial_state(issue: str) -> AgentState:
         },
         "relevant_files": [],
         "retrieved_context": "",
+        "retry_count": 0,
     }

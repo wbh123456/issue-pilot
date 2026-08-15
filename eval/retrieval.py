@@ -1,8 +1,9 @@
 """Retrieval eval: grep vs BM25 vs dense vs hybrid. No LLM, no V2 graph.
 
-Query is raw ``dataset.issue`` text. File-level Recall@K is the metric.
-Grep uses the existing ``grep_code`` tool (substring + hit counts). It must
-not call BM25, or the ablation is meaningless.
+Query defaults to raw ``dataset.issue`` text (same as the V2 retrieve node).
+File-level Recall@K is the metric. Grep uses the existing ``grep_code`` tool
+(substring + hit counts) but keeps only ``app/**/*.py`` so the baseline
+matches the indexer. It must not call BM25, or the ablation is meaningless.
 """
 
 from __future__ import annotations
@@ -18,8 +19,10 @@ from agent.tools.search import grep_code
 from eval.metrics import recall_at_k, unique_paths
 from eval.repository import reset_repo
 from harness.context import RETRIEVE_K
-from retrieval.dense import Embedder, FastEmbedEmbedder, HashingEmbedder
+from retrieval.chunker import INDEX_DIR
+from retrieval.dense import Embedder, HashingEmbedder, make_embedder
 from retrieval.indexer import CodeIndex, build_index
+from retrieval.query import DEFAULT_QUERY_MODE, build_retrieval_query, normalize_query_mode
 
 RetrievalMode = Literal["grep", "bm25", "dense", "hybrid"]
 INDEX_MODES: tuple[RetrievalMode, ...] = ("bm25", "dense", "hybrid")
@@ -76,15 +79,6 @@ _GREP_STOPWORDS = frozenset(
 )
 
 
-def make_embedder(name: str) -> Embedder:
-    key = (name or "hashing").strip().lower()
-    if key in {"hashing", "hash"}:
-        return HashingEmbedder()
-    if key in {"fastembed", "bge"}:
-        return FastEmbedEmbedder()
-    raise ValueError(f"unknown embedder {name!r}; use 'hashing' or 'fastembed'")
-
-
 def grep_query_tokens(issue: str) -> list[str]:
     """Issue tokens for the grep baseline. Original case; no camel/snake split."""
     seen: set[str] = set()
@@ -107,9 +101,15 @@ def rank_files_by_grep(repo_path: str | Path, issue: str) -> list[str]:
             continue
         for line in raw.splitlines():
             path = _grep_hit_path(line)
-            if path:
+            if path and _is_indexed_path(path):
                 counts[path] += 1
     return sorted(counts, key=lambda path: (-counts[path], path))
+
+
+def _is_indexed_path(path: str) -> bool:
+    """Keep grep ablation on the same ``app/**/*.py`` corpus as the indexer."""
+    normalized = path.replace("\\", "/").lstrip("./")
+    return normalized.startswith(f"{INDEX_DIR}/") and normalized.endswith(".py")
 
 
 def _grep_hit_path(line: str) -> str | None:
@@ -167,13 +167,20 @@ def evaluate_repo(
     index: CodeIndex | None = None,
     embedder: Embedder | None = None,
     k: int = RETRIEVE_K,
+    query_mode: str = DEFAULT_QUERY_MODE,
 ) -> dict[str, Any]:
     """Run four retrieval modes on an already-reset worktree. No LLM."""
     if k < 1:
         raise ValueError("k must be >= 1")
     repo = Path(repo_path)
     built = index or build_index(repo, embedder=embedder or HashingEmbedder())
-    query = str(task.get("issue") or "")
+    issue = str(task.get("issue") or "")
+    query_mode_name = normalize_query_mode(query_mode)
+    query = build_retrieval_query(
+        issue,
+        str(task.get("analysis") or ""),
+        mode=query_mode_name,
+    )
     expected = list(task.get("expected_files") or [])
 
     grep_ranked = rank_files_by_grep(repo, query)
@@ -185,9 +192,9 @@ def evaluate_repo(
             "tokens": grep_query_tokens(query),
         }
     }
-    for mode in INDEX_MODES:
-        files, chunks = rank_files_by_index(built, mode, query, k)
-        modes[mode] = {
+    for index_mode in INDEX_MODES:
+        files, chunks = rank_files_by_index(built, index_mode, query, k)
+        modes[index_mode] = {
             "retrieved_files": files,
             "recall_at_k": recall_at_k(files, expected, k=k),
             "chunks": chunks,
@@ -196,10 +203,13 @@ def evaluate_repo(
     return {
         "task_id": task["id"],
         "split": task.get("split"),
-        "issue": query,
+        "issue": issue,
+        "base_commit": task.get("base_commit"),
         "expected_files": expected,
         "k": k,
         "embedder": type(built.embedder).__name__,
+        "query": query,
+        "query_mode": query_mode_name,
         "chunk_count": len(built.chunks),
         "modes": modes,
     }
@@ -220,12 +230,14 @@ def run_retrieval_eval(
     split: str | None = None,
     k: int = RETRIEVE_K,
     embedder_name: str = "hashing",
+    query_mode: str = DEFAULT_QUERY_MODE,
     reset: bool = True,
     save: bool = True,
 ) -> dict[str, Any]:
     """Reset (optional), index once per commit, score selected tasks."""
     tasks = _select_tasks(task_id=task_id, split=split)
     embedder = make_embedder(embedder_name)
+    mode = normalize_query_mode(query_mode)
 
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     order: list[tuple[str, str]] = []
@@ -245,7 +257,9 @@ def run_retrieval_eval(
             reset_repo(repo, commit)
         index = build_index(repo, embedder=embedder)
         for task in groups[key]:
-            record = evaluate_repo(task, repo, index=index, k=k)
+            record = evaluate_repo(
+                task, repo, index=index, k=k, query_mode=mode
+            )
             if save:
                 record["run_path"] = str(save_retrieve_run(record))
             records.append(record)
@@ -263,6 +277,7 @@ def run_retrieval_eval(
         "split": split,
         "k": k,
         "embedder": type(embedder).__name__,
+        "query_mode": mode,
         "tasks": records,
         "mean_recall_at_k": means,
     }

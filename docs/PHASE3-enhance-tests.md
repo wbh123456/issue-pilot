@@ -213,3 +213,5 @@ Each solve: `git reset --hard 4b2258b` → one sandbox → V0 or V1 → hidden g
 | Day 5 | Wire verify-fail → diagnose → execute (`MAX_RETRY=2`) | Otherwise V1 cannot beat V0 when the first patch is incomplete |
 | Day 4 | RAG Recall@5 on **009** | Localization noise exists; V1 plan still lists distractors |
 | Harness | `git_diff` inside Docker; CLI UTF-8 print | Observed failures, not model failures |
+
+Later: Day 5 retry, Docker `git_diff`, and RAG alignment shipped in `docs/PHASE4-followup.md`. The table above is the post-enhance backlog as of that write-up.

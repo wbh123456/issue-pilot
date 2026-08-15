@@ -58,3 +58,22 @@ def reset_repo(repo_path: Path, base_commit: str) -> None:
     leftover = repo_path / "tests" / GOLD_STAGING_DIRNAME
     if leftover.exists():
         shutil.rmtree(leftover, ignore_errors=True)
+
+
+def git_sha(repo_path: Path) -> str | None:
+    """Return HEAD SHA for ``repo_path``, or None if git is unavailable."""
+    git = find_host_git()
+    if git is None:
+        return None
+    proc = subprocess.run(
+        [git, "-C", str(repo_path), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    sha = (proc.stdout or "").strip()
+    return sha or None

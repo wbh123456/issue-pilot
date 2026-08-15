@@ -10,6 +10,7 @@ from agent.loop import run_agent
 from agent.state import AgentState
 from agent.tools.schema import TOOLS, V2_TOOLS
 from harness.limits import MAX_AGENT_STEPS
+from retrieval.dense import Embedder, make_embedder
 
 from ._runtime import merge_telemetry, require_config
 
@@ -32,12 +33,26 @@ def _workflow_context(state: AgentState) -> str:
     files = [p for p in (state.get("relevant_files") or []) if p]
     if files:
         payload["relevant_files"] = files
+    diagnosis = (state.get("diagnosis") or "").strip()
+    if diagnosis:
+        payload["diagnosis"] = diagnosis
+        payload["retry_count"] = int(state.get("retry_count") or 0)
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _embedder_from_execute_config(cfg: dict) -> Embedder | None:
+    if cfg.get("embedder") is not None:
+        return cfg["embedder"]
+    name = cfg.get("embedder_name")
+    if not name:
+        return None
+    return make_embedder(str(name))
 
 
 def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
     cfg = require_config(config, "client", "model", "repo_path", "test_command")
     enable_search = bool(cfg.get("enable_search_code"))
+    embedder = _embedder_from_execute_config(cfg)
     result = run_agent(
         client=cfg["client"],
         issue=state["issue"],
@@ -49,6 +64,7 @@ def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
         sandbox=cfg.get("sandbox"),
         tools=V2_TOOLS if enable_search else TOOLS,
         search_code_enabled=enable_search,
+        embedder=embedder,
     )
 
     prompt_tokens = int(result.get("prompt_tokens", 0) or 0)
