@@ -4,6 +4,8 @@ Usage:
     python cli.py solve issue-001
     python cli.py solve issue-001 --harness v1
     python cli.py compare issue-001
+    python cli.py retrieve issue-009
+    python cli.py retrieve --split hard
     python cli.py sandbox doctor
     python cli.py sandbox build
     python cli.py solve issue-002 --max-steps 20
@@ -19,12 +21,20 @@ from rich.console import Console
 from rich.table import Table
 
 from agent.client import default_model
-from eval.runner import solve_task
+from eval.retrieval import ALL_MODES, run_retrieval_eval
+from harness.context import RETRIEVE_K
 from harness.limits import MAX_AGENT_STEPS
 from sandbox.image import DEFAULT_IMAGE, DockerPreflightError, build_image, doctor
 
 # force_terminal + utf-8-safe printing avoids Windows cp1252 crashes on arrows etc.
 console = Console(force_terminal=True, soft_wrap=True)
+
+
+def solve_task(*args, **kwargs):
+    """Lazy import so ``retrieve`` does not require LangGraph."""
+    from eval.runner import solve_task as _solve_task
+
+    return _solve_task(*args, **kwargs)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -49,6 +59,40 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=MAX_AGENT_STEPS,
         help=f"Max executor ReAct steps (default: {MAX_AGENT_STEPS})",
+    )
+
+    retrieve = sub.add_parser(
+        "retrieve",
+        help="Recall@K retrieval eval (grep vs bm25 vs dense vs hybrid). No LLM.",
+    )
+    retrieve.add_argument(
+        "task_id",
+        nargs="?",
+        default=None,
+        help="Task id from eval/dataset.json, e.g. issue-009",
+    )
+    retrieve.add_argument(
+        "--split",
+        choices=("smoke", "hard"),
+        default=None,
+        help="Evaluate every task in this split (hard = issue-008–011)",
+    )
+    retrieve.add_argument(
+        "--k",
+        type=int,
+        default=RETRIEVE_K,
+        help=f"Recall@K cutoff (default: {RETRIEVE_K})",
+    )
+    retrieve.add_argument(
+        "--embedder",
+        choices=("hashing", "fastembed"),
+        default="fastembed",
+        help="Dense embedder: hashing (offline) or fastembed (live DoD; may download)",
+    )
+    retrieve.add_argument(
+        "--no-reset",
+        action="store_true",
+        help="Skip git reset to base_commit (debug only)",
     )
 
     compare = sub.add_parser(
@@ -171,6 +215,47 @@ def _print_compare(v0: dict, v1: dict) -> None:
     console.print(table)
 
 
+def _print_retrieval(result: dict) -> None:
+    k = result.get("k")
+    embedder = result.get("embedder") or "-"
+    split = result.get("split") or "task"
+    table = Table(title=f"Recall@{k} ({split}, {embedder})")
+    table.add_column("Task")
+    table.add_column("expected")
+    for mode in ALL_MODES:
+        table.add_column(mode)
+
+    for row in result.get("tasks") or []:
+        expected = ", ".join(row.get("expected_files") or []) or "-"
+        cells = [str(row.get("task_id") or "-"), expected]
+        modes = row.get("modes") or {}
+        for mode in ALL_MODES:
+            score = (modes.get(mode) or {}).get("recall_at_k")
+            cells.append(f"{float(score):.2f}" if score is not None else "-")
+        table.add_row(*cells)
+
+    means = result.get("mean_recall_at_k") or {}
+    mean_cells = ["mean", "-"]
+    for mode in ALL_MODES:
+        score = means.get(mode)
+        mean_cells.append(f"{float(score):.2f}" if score is not None else "-")
+    table.add_row(*mean_cells)
+    console.print(table)
+
+    for row in result.get("tasks") or []:
+        task_id = row.get("task_id")
+        console.print(f"\n[bold]{task_id}[/bold]  {row.get('issue') or ''}")
+        expected = ", ".join(row.get("expected_files") or [])
+        console.print(f"  expected: {expected}")
+        modes = row.get("modes") or {}
+        for mode in ALL_MODES:
+            files = ", ".join((modes.get(mode) or {}).get("retrieved_files") or []) or "-"
+            console.print(f"  {mode}: {files}")
+        run_path = row.get("run_path")
+        if run_path:
+            console.print(f"  run_path: {run_path}")
+
+
 def _print_doctor(report) -> None:
     table = Table(title="Sandbox doctor")
     table.add_column("Check")
@@ -247,6 +332,28 @@ def main(argv: list[str] | None = None) -> int:
         # Exit 0 only if both gold tests passed.
         both_ok = records["v0"].get("success") and records["v1"].get("success")
         return 0 if both_ok else 2
+
+    if args.command == "retrieve":
+        if not args.task_id and not args.split:
+            parser.error("retrieve requires a task_id or --split")
+        label = args.task_id or f"split={args.split}"
+        console.print(
+            f"[cyan]Retrieval eval {label} "
+            f"(k={args.k}, embedder={args.embedder})...[/cyan]"
+        )
+        try:
+            result = run_retrieval_eval(
+                task_id=args.task_id,
+                split=args.split,
+                k=args.k,
+                embedder_name=args.embedder,
+                reset=not args.no_reset,
+            )
+        except Exception as exc:
+            console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")
+            return 1
+        _print_retrieval(result)
+        return 0
 
     if args.command == "sandbox":
         if args.sandbox_command == "doctor":

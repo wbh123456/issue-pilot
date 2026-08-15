@@ -482,6 +482,53 @@ class TestCLI:
         with pytest.raises(SystemExit):
             cli.main(["solve", "issue-001", "--harness", "v9"])
 
+    def test_retrieve_requires_task_or_split(self) -> None:
+        with pytest.raises(SystemExit):
+            cli.main(["retrieve"])
+
+    def test_retrieve_wires_eval(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_eval(**kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return {
+                "split": kwargs.get("split"),
+                "k": kwargs.get("k"),
+                "embedder": "HashingEmbedder",
+                "tasks": [
+                    {
+                        "task_id": "issue-009",
+                        "issue": "Ordering 50 widgets",
+                        "expected_files": ["app/inventory.py", "app/orders.py"],
+                        "modes": {
+                            mode: {
+                                "recall_at_k": 1.0,
+                                "retrieved_files": ["app/inventory.py"],
+                            }
+                            for mode in ("grep", "bm25", "dense", "hybrid")
+                        },
+                        "run_path": "runs/issue-009-retrieve-fake.json",
+                    }
+                ],
+                "mean_recall_at_k": {
+                    "grep": 1.0,
+                    "bm25": 1.0,
+                    "dense": 1.0,
+                    "hybrid": 1.0,
+                },
+            }
+
+        monkeypatch.setattr(cli, "run_retrieval_eval", fake_eval)
+        code = cli.main(
+            ["retrieve", "--split", "hard", "--embedder", "hashing", "--k", "5"]
+        )
+        assert code == 0
+        assert seen["split"] == "hard"
+        assert seen["task_id"] is None
+        assert seen["embedder_name"] == "hashing"
+        assert seen["k"] == 5
+        assert seen["reset"] is True
+
     def test_sandbox_doctor_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class Report:
             ok = False
