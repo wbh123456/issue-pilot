@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-PREVIEW_CHARS = 160
+PREVIEW_CHARS = 480
+STAGE_RULE = "=" * 32
 
 _EXIT_CODE_RE = re.compile(r"exit_code=(-?\d+)")
+_BOLD_HEADING_RE = re.compile(r"^\*\*(.+?)\*\*:?$")
 
 
 class ProgressReporter(Protocol):
@@ -31,8 +33,36 @@ def get_reporter(progress: ProgressReporter | None) -> ProgressReporter:
     return progress if progress is not None else NullReporter()
 
 
+def _heading_label(line: str) -> str | None:
+    """Turn a markdown heading line into ``Title:``. None if not a heading."""
+    if line.startswith("#"):
+        label = line.lstrip("#").strip()
+        if not label:
+            return None
+        return label if label.endswith(":") else f"{label}:"
+    match = _BOLD_HEADING_RE.fullmatch(line)
+    if match:
+        label = match.group(1).strip().rstrip(":")
+        if not label:
+            return None
+        return f"{label}:"
+    return None
+
+
+def flatten_progress_text(text: str) -> str:
+    """Collapse whitespace; heading lines become ``Title:`` before the body."""
+    parts: list[str] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        heading = _heading_label(line)
+        parts.append(heading if heading is not None else line)
+    return " ".join(parts)
+
+
 def preview(text: str, limit: int = PREVIEW_CHARS) -> str:
-    collapsed = " ".join((text or "").split())
+    collapsed = flatten_progress_text(text)
     if len(collapsed) <= limit:
         return collapsed
     return collapsed[: limit - 3].rstrip() + "..."
@@ -107,14 +137,15 @@ def summarize_tool(
 
 
 def format_stage_line(name: str, detail: str = "") -> str:
+    lines = [f"### {name}", STAGE_RULE]
     detail = (detail or "").strip()
     if detail:
-        return f"{name}  {detail}"
-    return name
+        lines.append(f"  - {detail}")
+    return "\n".join(lines)
 
 
 def format_note_line(text: str) -> str:
-    return f"  {preview(text)}"
+    return f"  - {preview(text)}"
 
 
 def format_tool_line(
@@ -125,7 +156,7 @@ def format_tool_line(
     if detail:
         bits.append(detail)
     bits.append(outcome)
-    return "  " + "  ".join(bits)
+    return "  - " + "  ".join(bits)
 
 
 class ConsoleReporter:

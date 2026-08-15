@@ -43,6 +43,21 @@ class TestFormatters:
         assert len(out) <= PREVIEW_CHARS
         assert out.endswith("...")
 
+    def test_preview_heading_gets_colon(self) -> None:
+        out = preview(
+            "## Problem in plain terms\nWhen a client calls GET /auth/me\n\n"
+            "## Hypothesis\ndecode_token only catches InvalidSignatureError"
+        )
+        assert "Problem in plain terms: When a client" in out
+        assert "Hypothesis: decode_token" in out
+        note = format_note_line(
+            "**Problem in plain terms:**\nA client retried checkout.\n"
+            "**Hypothesis**\nIdempotency key is ignored"
+        )
+        assert note.startswith("  - ")
+        assert "Problem in plain terms: A client retried checkout." in note
+        assert "Hypothesis: Idempotency key is ignored" in note
+
     def test_read_file_shows_size_not_body(self) -> None:
         body = "def f():\n    return 1\n" * 80
         detail, outcome = summarize_tool("read_file", {"path": "app/auth.py"}, body)
@@ -50,6 +65,7 @@ class TestFormatters:
         assert "def f" not in outcome
         assert "chars" in outcome
         line = format_tool_line(1, "read_file", {"path": "app/auth.py"}, body)
+        assert line.startswith("  - ")
         assert "app/auth.py" in line
         assert "def f" not in line
 
@@ -59,6 +75,7 @@ class TestFormatters:
         assert detail == ""
         assert outcome == "exit 1"
         line = format_tool_line(4, "run_tests", {}, result)
+        assert line.startswith("  - ")
         assert "FAILED" not in line
         assert "exit 1" in line
 
@@ -75,7 +92,9 @@ class TestFormatters:
         huge = "--- diff ---\n" + ("+" * 4000)
         _, changed = summarize_tool("git_diff", {}, huge)
         assert changed == "has diff"
-        assert "+" not in format_tool_line(1, "git_diff", {}, huge)
+        line = format_tool_line(1, "git_diff", {}, huge)
+        assert line.startswith("  - ")
+        assert "+" not in line
 
     def test_format_size(self) -> None:
         assert format_size(12) == "12 chars"
@@ -86,9 +105,17 @@ class TestFormatters:
         assert summarize_files(["a.py", "b.py", "c.py"]) == "a.py, b.py (+1)"
 
     def test_stage_and_note_lines(self) -> None:
-        assert format_stage_line("execute") == "execute"
-        assert format_stage_line("execute", "retry 1") == "execute  retry 1"
-        assert format_note_line("  hello\nworld").startswith("  hello world")
+        execute = format_stage_line("execute")
+        assert execute.startswith("### execute")
+        assert "===" in execute
+        retry = format_stage_line("execute", "retry 1")
+        assert retry.startswith("### execute")
+        assert "===" in retry
+        assert "  - retry 1" in retry
+        note = format_note_line("  hello\nworld")
+        assert note.startswith("  - ")
+        assert "hello world" in note
+        assert PREVIEW_CHARS > 160
 
     def test_error_is_previewed(self) -> None:
         _, outcome = summarize_tool(
@@ -114,8 +141,10 @@ class TestReporter:
         reporter.stage("analyze")
         reporter.note("Expired JWT returns 500")
         reporter.tool(1, "read_file", {"path": "app/auth.py"}, "x" * 50)
-        assert printed[0] == "analyze"
-        assert printed[1] == "  Expired JWT returns 500"
+        assert printed[0].startswith("### analyze")
+        assert "===" in printed[0]
+        assert printed[1] == "  - Expired JWT returns 500"
+        assert printed[2].startswith("  - ")
         assert "read_file" in printed[2]
         assert "app/auth.py" in printed[2]
 
