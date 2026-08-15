@@ -26,11 +26,18 @@ from agent.client import default_model
 from eval.retrieval import ALL_MODES, run_retrieval_eval
 from harness.context import RETRIEVE_K
 from harness.limits import MAX_AGENT_STEPS
+from harness.progress import ConsoleReporter
 from retrieval.query import DEFAULT_QUERY_MODE, QUERY_MODES
 from sandbox.image import DEFAULT_IMAGE, DockerPreflightError, build_image, doctor
 
 # force_terminal + utf-8-safe printing avoids Windows cp1252 crashes on arrows etc.
 console = Console(force_terminal=True, soft_wrap=True)
+
+
+def _progress_reporter(args) -> ConsoleReporter | None:
+    if getattr(args, "quiet", False):
+        return None
+    return ConsoleReporter(console)
 
 
 def solve_task(*args, **kwargs):
@@ -75,6 +82,11 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=QUERY_MODES,
         default=DEFAULT_QUERY_MODE,
         help="V2 retrieve query: issue (same as offline eval) or issue+analysis",
+    )
+    solve.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Do not print live stage/tool progress",
     )
 
     retrieve = sub.add_parser(
@@ -132,6 +144,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=MAX_AGENT_STEPS,
         help=f"Max executor ReAct steps for both harnesses (default: {MAX_AGENT_STEPS})",
+    )
+    compare.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Do not print live stage/tool progress",
     )
 
     report = sub.add_parser(
@@ -409,6 +426,7 @@ def main(argv: list[str] | None = None) -> int:
                 harness_version=args.harness,
                 embedder_name=args.embedder,
                 query_mode=args.query_mode,
+                progress=_progress_reporter(args),
             )
         except Exception as exc:
             console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")
@@ -433,6 +451,7 @@ def main(argv: list[str] | None = None) -> int:
                     model=model,
                     max_steps=max_steps,
                     harness_version=harness,
+                    progress=_progress_reporter(args),
                 )
             except Exception as exc:
                 console.print(

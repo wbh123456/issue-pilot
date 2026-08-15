@@ -5,6 +5,7 @@ import time
 from typing import TYPE_CHECKING
 
 from harness.limits import AGENT_TEMPERATURE, MAX_AGENT_STEPS
+from harness.progress import ProgressReporter, get_reporter
 from .tools import TOOLS, execute_tool
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ def run_agent(
     tools: list | None = None,
     search_code_enabled: bool = False,
     embedder=None,
+    progress: ProgressReporter | None = None,
 ) -> dict:
     """Run the V0 ReAct tool loop.
 
@@ -50,6 +52,7 @@ def run_agent(
     ``search_code`` call returns ``unknown tool``.
     """
     tool_schemas = tools if tools is not None else TOOLS
+    reporter = get_reporter(progress)
     user_content = f"Fix this issue:\n\n{issue}"
     if workflow_context:
         user_content += f"\n\nWorkflow context:\n{workflow_context}"
@@ -138,6 +141,7 @@ def run_agent(
                 "arguments": args,
                 "result": result,
             })
+            reporter.tool(step + 1, name, args, result)
 
             messages.append({
                 "role": "tool",

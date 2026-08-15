@@ -71,6 +71,20 @@ class FakeClient:
         return self._responses.pop(0)
 
 
+class RecordingReporter:
+    def __init__(self) -> None:
+        self.events: list[tuple[Any, ...]] = []
+
+    def stage(self, name: str, detail: str = "") -> None:
+        self.events.append(("stage", name, detail))
+
+    def note(self, text: str) -> None:
+        self.events.append(("note", text))
+
+    def tool(self, step: int, name: str, args: dict[str, Any], result: str) -> None:
+        self.events.append(("tool", step, name, args, result))
+
+
 VALID_PLAN = {
     "problem": "Expired JWT returns 500",
     "hypothesis": "decode_token misses ExpiredSignatureError",
@@ -454,12 +468,14 @@ class TestWorkflowGraph:
             ),
             patch("agent.nodes.verify.git_diff", return_value="(no changes)"),
         ):
+            reporter = RecordingReporter()
             result = run_workflow(
                 client=client,
                 issue="bug",
                 repo_path="/tmp/repo",
                 test_command="pytest -q",
                 graph=build_graph(),
+                progress=reporter,
             )
 
         assert result["status"] == "success"
@@ -467,6 +483,14 @@ class TestWorkflowGraph:
         assert result["retry_count"] == 1
         assert "409" in result["diagnosis"]
         assert result["final_answer"] == "fixed"
+        stages = [(e[1], e[2]) for e in reporter.events if e[0] == "stage"]
+        assert stages[0][0] == "analyze"
+        assert ("execute", "") in stages
+        assert ("verify", "FAIL  exit 1") in stages
+        assert stages[[s[0] for s in stages].index("diagnose")][1].startswith("Retry")
+        assert ("execute", "retry 1") in stages
+        assert ("verify", "PASS  exit 0") in stages
+        assert ("success", "") in stages
 
     def test_verify_pass_despite_model_claiming_failure_text(self) -> None:
         client = FakeClient(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Literal
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from agent.nodes import (
@@ -14,17 +15,21 @@ from agent.nodes import (
     execute_plan,
     structured_plan,
 )
+from agent.nodes._runtime import get_reporter
 from agent.state import AgentState, initial_state
 from harness.limits import MAX_AGENT_STEPS, MAX_RETRY
+from harness.progress import ProgressReporter
 
 
-def mark_success(state: AgentState) -> dict:
+def mark_success(state: AgentState, config: RunnableConfig) -> dict:
     """Terminal PASS node — status only; no LLM call."""
+    get_reporter(config).stage("success")
     return {"status": "success"}
 
 
-def mark_needs_human(state: AgentState) -> dict:
+def mark_needs_human(state: AgentState, config: RunnableConfig) -> dict:
     """Terminal escalation after the retry budget is exhausted."""
+    get_reporter(config).stage("needs_human")
     return {"status": "needs_human"}
 
 
@@ -169,6 +174,7 @@ def run_workflow(
     enable_search_code: bool = False,
     embedder_name: str = "hashing",
     query_mode: str = "issue",
+    progress: ProgressReporter | None = None,
 ) -> dict[str, Any]:
     """Invoke the compiled graph and return evaluator-compatible result keys.
 
@@ -192,6 +198,7 @@ def run_workflow(
                 "enable_search_code": enable_search_code,
                 "embedder_name": embedder_name,
                 "query_mode": query_mode,
+                "progress": progress,
             }
         },
     )

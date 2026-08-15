@@ -7,6 +7,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from agent.state import AgentState, Telemetry
+from harness.progress import ProgressReporter, get_reporter as resolve_reporter
 
 
 def configurable(config: RunnableConfig) -> dict[str, Any]:
@@ -21,6 +22,10 @@ def require_config(config: RunnableConfig, *keys: str) -> dict[str, Any]:
             "Missing runtime config for node: " + ", ".join(missing)
         )
     return cfg
+
+
+def get_reporter(config: RunnableConfig) -> ProgressReporter:
+    return resolve_reporter(configurable(config).get("progress"))
 
 
 def _merge_stage_tokens(

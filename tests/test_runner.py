@@ -603,13 +603,42 @@ class TestCLI:
         assert seen["task_id"] == "issue-001"
         assert seen["harness_version"] == "v1"
         assert seen["max_steps"] == 8
+        assert seen["progress"] is not None
+
+    def test_solve_quiet_skips_reporter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return {
+                "task_id": task_id,
+                "harness_version": kwargs.get("harness_version"),
+                "success": True,
+                "difficulty": "easy",
+                "termination": "completed",
+                "steps": 1,
+                "llm_calls": 1,
+                "tool_call_count": 0,
+                "file_reads": 0,
+                "tokens": 1,
+                "latency": 0.1,
+                "run_path": "runs/x.json",
+                "final_answer": "ok",
+            }
+
+        monkeypatch.setattr(cli, "solve_task", fake_solve)
+        code = cli.main(["solve", "issue-001", "--quiet"])
+        assert code == 0
+        assert seen["progress"] is None
 
     def test_compare_runs_both_harnesses(self, monkeypatch: pytest.MonkeyPatch) -> None:
         harnesses: list[str] = []
+        progress_flags: list[bool] = []
 
         def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
             harness = kwargs["harness_version"]
             harnesses.append(harness)
+            progress_flags.append(kwargs.get("progress") is not None)
             return {
                 "task_id": task_id,
                 "harness_version": harness,
@@ -633,6 +662,34 @@ class TestCLI:
         code = cli.main(["compare", "issue-001", "--max-steps", "12"])
         assert code == 0
         assert harnesses == ["v0", "v1"]
+        assert progress_flags == [True, True]
+
+    def test_compare_quiet_skips_reporter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        flags: list[Any] = []
+
+        def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
+            flags.append(kwargs.get("progress"))
+            return {
+                "task_id": task_id,
+                "harness_version": kwargs["harness_version"],
+                "success": True,
+                "difficulty": "easy",
+                "termination": "completed",
+                "steps": 1,
+                "llm_calls": 1,
+                "tool_call_count": 0,
+                "file_reads": 0,
+                "tokens": 1,
+                "latency": 0.1,
+                "run_path": "runs/x.json",
+                "final_answer": "ok",
+            }
+
+        monkeypatch.setattr(cli, "solve_task", fake_solve)
+        monkeypatch.setattr(cli, "default_model", lambda: "fake-model")
+        code = cli.main(["compare", "issue-001", "--quiet"])
+        assert code == 0
+        assert flags == [None, None]
 
     def test_solve_accepts_v2(self, monkeypatch: pytest.MonkeyPatch) -> None:
         seen: dict[str, Any] = {}

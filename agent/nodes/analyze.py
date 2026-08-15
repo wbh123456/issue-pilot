@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from agent.state import AgentState
 from harness.limits import AGENT_TEMPERATURE
 
-from ._runtime import merge_telemetry, require_config, stage_usage
+from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage
 
 ANALYZE_SYSTEM = """
 You are analyzing a software bug before any code changes.
@@ -39,6 +39,10 @@ def analyze_issue(state: AgentState, config: RunnableConfig) -> dict:
     analysis = (response.choices[0].message.content or "").strip()
     if not analysis:
         raise RuntimeError("Analyze node returned empty content")
+
+    reporter = get_reporter(config)
+    reporter.stage("analyze")
+    reporter.note(analysis)
 
     return {
         "analysis": analysis,

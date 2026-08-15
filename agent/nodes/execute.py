@@ -12,7 +12,7 @@ from agent.tools.schema import TOOLS, V2_TOOLS
 from harness.limits import MAX_AGENT_STEPS
 from retrieval.dense import Embedder, make_embedder
 
-from ._runtime import merge_telemetry, require_config
+from ._runtime import get_reporter, merge_telemetry, require_config
 
 _EXECUTOR_GUARDRAIL = (
     "Ignore plan paths that are not present in the repository. "
@@ -53,6 +53,12 @@ def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
     cfg = require_config(config, "client", "model", "repo_path", "test_command")
     enable_search = bool(cfg.get("enable_search_code"))
     embedder = _embedder_from_execute_config(cfg)
+    reporter = get_reporter(config)
+    retry = int(state.get("retry_count") or 0)
+    if retry:
+        reporter.stage("execute", f"retry {retry}")
+    else:
+        reporter.stage("execute")
     result = run_agent(
         client=cfg["client"],
         issue=state["issue"],
@@ -65,6 +71,7 @@ def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
         tools=V2_TOOLS if enable_search else TOOLS,
         search_code_enabled=enable_search,
         embedder=embedder,
+        progress=cfg.get("progress"),
     )
 
     prompt_tokens = int(result.get("prompt_tokens", 0) or 0)

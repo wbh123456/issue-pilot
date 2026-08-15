@@ -10,7 +10,7 @@ from agent.state import AgentState
 from agent.tools.git import git_diff
 from agent.tools.shell import run_tests
 
-from ._runtime import require_config
+from ._runtime import get_reporter, require_config
 
 
 def _parse_exit_code(output: str) -> int:
@@ -31,6 +31,8 @@ def deterministic_verify(state: AgentState, config: RunnableConfig) -> dict:
     exit_code = _parse_exit_code(output)
     passed = exit_code == 0
     diff = git_diff(repo_path, sandbox=sandbox)
+    label = "PASS" if passed else "FAIL"
+    get_reporter(config).stage("verify", f"{label}  exit {exit_code}")
 
     return {
         "test_result": {

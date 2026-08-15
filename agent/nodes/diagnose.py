@@ -8,8 +8,9 @@ from langchain_core.runnables import RunnableConfig
 
 from agent.state import AgentState
 from harness.limits import AGENT_TEMPERATURE, MAX_RETRY
+from harness.progress import preview
 
-from ._runtime import merge_telemetry, require_config, stage_usage
+from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage
 
 DIAGNOSE_SYSTEM = """
 You are diagnosing why a coding-agent attempt failed verification.
@@ -62,6 +63,7 @@ def diagnose_failure(state: AgentState, config: RunnableConfig) -> dict:
 
     retry_count = int(state.get("retry_count") or 0) + 1
     status = "failed" if retry_count >= MAX_RETRY else "retrying"
+    get_reporter(config).stage("diagnose", preview(diagnosis))
     return {
         "diagnosis": diagnosis,
         "retry_count": retry_count,

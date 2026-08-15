@@ -143,6 +143,7 @@ def _run_harness(
     sandbox=None,
     embedder_name: str = "hashing",
     query_mode: str = DEFAULT_QUERY_MODE,
+    progress=None,
 ) -> dict[str, Any]:
     if harness == "v0":
         return run_agent(
@@ -153,6 +154,7 @@ def _run_harness(
             model=model,
             max_steps=max_steps,
             sandbox=sandbox,
+            progress=progress,
         )
     if harness == "v1":
         return run_workflow(
@@ -163,6 +165,7 @@ def _run_harness(
             model=model,
             max_steps=max_steps,
             sandbox=sandbox,
+            progress=progress,
         )
     return run_workflow(
         client=client,
@@ -176,6 +179,7 @@ def _run_harness(
         enable_search_code=True,
         embedder_name=embedder_name,
         query_mode=query_mode,
+        progress=progress,
     )
 
 
@@ -254,6 +258,7 @@ def solve_task(
     harness_version: str = "v0",
     embedder_name: str = "hashing",
     query_mode: str = DEFAULT_QUERY_MODE,
+    progress=None,
 ) -> dict[str, Any]:
     """Full harness cycle for one dataset task.
 
@@ -292,6 +297,7 @@ def solve_task(
                     sandbox=sandbox,
                     embedder_name=embedder_name,
                     query_mode=retrieve_query_mode,
+                    progress=progress,
                 )
             except Exception as exc:
                 error_type = type(exc).__name__

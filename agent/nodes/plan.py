@@ -10,8 +10,9 @@ from agent.state import AgentState, PlanValidationError, parse_structured_plan
 from agent.tools._sandbox import resolve_in_repo
 from agent.tools.filesystem import list_files
 from harness.limits import AGENT_TEMPERATURE
+from harness.progress import summarize_files
 
-from ._runtime import merge_telemetry, require_config, stage_usage
+from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage
 
 PLAN_SYSTEM = """
 You are the planner for a coding-agent workflow.
@@ -119,6 +120,11 @@ def structured_plan(state: AgentState, config: RunnableConfig) -> dict:
         repo_path,
         plan_data.get("files_to_inspect") or [],
     )
+
+    reporter = get_reporter(config)
+    files = summarize_files(plan_data.get("files_to_inspect") or [])
+    n_steps = len(plan_data.get("steps") or [])
+    reporter.stage("plan", f"files={files}  steps={n_steps}")
 
     return {
         "plan": plan_data,
