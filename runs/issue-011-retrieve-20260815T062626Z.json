@@ -1,0 +1,178 @@
+{
+  "task_id": "issue-011",
+  "split": "hard",
+  "issue": "SAVE10 on a $10 item charged $8.10, and after I refunded the order the widget was still missing from stock",
+  "expected_files": [
+    "app/orders.py",
+    "app/pricing.py",
+    "app/payments.py"
+  ],
+  "k": 5,
+  "embedder": "FastEmbedEmbedder",
+  "chunk_count": 54,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/orders.py",
+        "app/inventory.py",
+        "app/main.py",
+        "app/payments.py",
+        "tests/test_inventory_orders.py"
+      ],
+      "recall_at_k": 0.6666666666666666,
+      "tokens": [
+        "SAVE10",
+        "item",
+        "charged",
+        "after",
+        "refunded",
+        "order",
+        "widget",
+        "still",
+        "missing",
+        "stock"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/pricing.py",
+        "app/inventory.py",
+        "app/payments.py",
+        "app/main.py",
+        "app/orders.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/pricing.py",
+          "symbol": "pricing",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 10
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "inventory",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 15
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "refund",
+          "type": "function",
+          "start_line": 22,
+          "end_line": 24
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "OrderItem",
+          "type": "class",
+          "start_line": 17,
+          "end_line": 20
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "refund_order",
+          "type": "function",
+          "start_line": 45,
+          "end_line": 49
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/payments.py",
+        "app/main.py",
+        "app/orders.py",
+        "app/inventory.py",
+        "app/pricing.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/payments.py",
+          "symbol": "refund",
+          "type": "function",
+          "start_line": 22,
+          "end_line": 24
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "OrderItem",
+          "type": "class",
+          "start_line": 17,
+          "end_line": 20
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "refund_order",
+          "type": "function",
+          "start_line": 45,
+          "end_line": 49
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "reserve",
+          "type": "function",
+          "start_line": 22,
+          "end_line": 27
+        },
+        {
+          "path": "app/pricing.py",
+          "symbol": "compute_checkout_total",
+          "type": "function",
+          "start_line": 29,
+          "end_line": 37
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/payments.py",
+        "app/main.py",
+        "app/orders.py",
+        "app/inventory.py",
+        "app/pricing.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/payments.py",
+          "symbol": "refund",
+          "type": "function",
+          "start_line": 22,
+          "end_line": 24
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "OrderItem",
+          "type": "class",
+          "start_line": 17,
+          "end_line": 20
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "refund_order",
+          "type": "function",
+          "start_line": 45,
+          "end_line": 49
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "inventory",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 15
+        },
+        {
+          "path": "app/pricing.py",
+          "symbol": "pricing",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 10
+        }
+      ]
+    }
+  }
+}

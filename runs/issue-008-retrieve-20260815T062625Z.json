@@ -1,0 +1,174 @@
+{
+  "task_id": "issue-008",
+  "split": "hard",
+  "issue": "Retrying checkout with the same Idempotency-Key created a second order.",
+  "expected_files": [
+    "app/orders.py"
+  ],
+  "k": 5,
+  "embedder": "FastEmbedEmbedder",
+  "chunk_count": 54,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/orders.py",
+        "app/main.py",
+        "tests/test_orders_idempotency.py",
+        "app/pricing.py",
+        "conftest.py"
+      ],
+      "recall_at_k": 1.0,
+      "tokens": [
+        "Retrying",
+        "checkout",
+        "same",
+        "Idempotency",
+        "Key",
+        "created",
+        "second",
+        "order"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/main.py",
+        "app/orders.py",
+        "app/pricing.py",
+        "app/payments.py",
+        "app/auth.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/main.py",
+          "symbol": "create_order_endpoint",
+          "type": "function",
+          "start_line": 61,
+          "end_line": 75
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "create_order",
+          "type": "function",
+          "start_line": 16,
+          "end_line": 42
+        },
+        {
+          "path": "app/pricing.py",
+          "symbol": "pricing",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 10
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "get_current_user_id",
+          "type": "function",
+          "start_line": 30,
+          "end_line": 33
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/orders.py",
+        "app/main.py",
+        "app/payments.py",
+        "app/inventory.py",
+        "app/pricing.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/orders.py",
+          "symbol": "get_order",
+          "type": "function",
+          "start_line": 52,
+          "end_line": 56
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "create_order_endpoint",
+          "type": "function",
+          "start_line": 61,
+          "end_line": 75
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "refund",
+          "type": "function",
+          "start_line": 22,
+          "end_line": 24
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 47,
+          "end_line": 50
+        },
+        {
+          "path": "app/pricing.py",
+          "symbol": "compute_checkout_total",
+          "type": "function",
+          "start_line": 29,
+          "end_line": 37
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/main.py",
+        "app/orders.py",
+        "app/payments.py",
+        "app/pricing.py",
+        "app/inventory.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/main.py",
+          "symbol": "create_order_endpoint",
+          "type": "function",
+          "start_line": 61,
+          "end_line": 75
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "create_order",
+          "type": "function",
+          "start_line": 16,
+          "end_line": 42
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "refund",
+          "type": "function",
+          "start_line": 22,
+          "end_line": 24
+        },
+        {
+          "path": "app/pricing.py",
+          "symbol": "compute_checkout_total",
+          "type": "function",
+          "start_line": 29,
+          "end_line": 37
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        }
+      ]
+    }
+  }
+}

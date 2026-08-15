@@ -1,0 +1,172 @@
+{
+  "task_id": "issue-009",
+  "split": "hard",
+  "issue": "Ordering 50 widgets when 3 are in stock crashes with 500",
+  "expected_files": [
+    "app/inventory.py",
+    "app/orders.py"
+  ],
+  "k": 5,
+  "embedder": "FastEmbedEmbedder",
+  "chunk_count": 54,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/inventory.py",
+        "app/payments.py",
+        "tests/test_inventory_orders.py",
+        "app/main.py",
+        "tests/test_auth_claims.py"
+      ],
+      "recall_at_k": 0.5,
+      "tokens": [
+        "Ordering",
+        "widgets",
+        "stock",
+        "crashes",
+        "500"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/payments.py",
+        "app/inventory.py",
+        "app/main.py",
+        "app/users.py",
+        "app/validators.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/payments.py",
+          "symbol": "fail_closed_message",
+          "type": "function",
+          "start_line": 27,
+          "end_line": 29
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "inventory",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 15
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "stock_endpoint",
+          "type": "function",
+          "start_line": 85,
+          "end_line": 87
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "users",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 15
+        },
+        {
+          "path": "app/validators.py",
+          "symbol": "is_strong_password",
+          "type": "function",
+          "start_line": 15,
+          "end_line": 20
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/orders.py",
+        "app/main.py",
+        "app/inventory.py",
+        "app/payments.py",
+        "app/calculator.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/orders.py",
+          "symbol": "orders",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 7
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "OrderItem",
+          "type": "class",
+          "start_line": 17,
+          "end_line": 20
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "inventory",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 15
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "fail_closed_message",
+          "type": "function",
+          "start_line": 27,
+          "end_line": 29
+        },
+        {
+          "path": "app/calculator.py",
+          "symbol": "calculator",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 3
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/inventory.py",
+        "app/payments.py",
+        "app/orders.py",
+        "app/main.py",
+        "app/users.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/inventory.py",
+          "symbol": "inventory",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 15
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "fail_closed_message",
+          "type": "function",
+          "start_line": 27,
+          "end_line": 29
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "orders",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 7
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "stock_endpoint",
+          "type": "function",
+          "start_line": 85,
+          "end_line": 87
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "users",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 15
+        }
+      ]
+    }
+  }
+}

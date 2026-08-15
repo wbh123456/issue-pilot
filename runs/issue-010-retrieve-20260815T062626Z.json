@@ -1,0 +1,176 @@
+{
+  "task_id": "issue-010",
+  "split": "hard",
+  "issue": "I promoted alice but she still gets 403 on admin endpoints until she logs out and back in",
+  "expected_files": [
+    "app/auth.py",
+    "app/users.py"
+  ],
+  "k": 5,
+  "embedder": "FastEmbedEmbedder",
+  "chunk_count": 54,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/auth.py",
+        "tests/test_inventory_orders.py",
+        "tests/test_orders_idempotency.py",
+        "app/users.py",
+        "tests/test_orders_coupon_refund.py"
+      ],
+      "recall_at_k": 1.0,
+      "tokens": [
+        "promoted",
+        "alice",
+        "still",
+        "gets",
+        "403",
+        "admin",
+        "endpoints",
+        "logs",
+        "back"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/auth.py",
+        "app/users.py",
+        "app/main.py",
+        "app/inventory.py",
+        "app/orders.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/auth.py",
+          "symbol": "require_admin",
+          "type": "function",
+          "start_line": 36,
+          "end_line": 41
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "users",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 15
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "create_order_endpoint",
+          "type": "function",
+          "start_line": 61,
+          "end_line": 75
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "reserve",
+          "type": "function",
+          "start_line": 22,
+          "end_line": 27
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 59,
+          "end_line": 63
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/main.py",
+        "app/auth.py",
+        "app/users.py",
+        "app/payments.py",
+        "app/validators.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/main.py",
+          "symbol": "promote_endpoint",
+          "type": "function",
+          "start_line": 53,
+          "end_line": 58
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "require_admin",
+          "type": "function",
+          "start_line": 36,
+          "end_line": 41
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "promote_user",
+          "type": "function",
+          "start_line": 41,
+          "end_line": 44
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/validators.py",
+          "symbol": "validators",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 5
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/auth.py",
+        "app/users.py",
+        "app/main.py",
+        "app/payments.py",
+        "app/inventory.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/auth.py",
+          "symbol": "require_admin",
+          "type": "function",
+          "start_line": 36,
+          "end_line": 41
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "promote_user",
+          "type": "function",
+          "start_line": 41,
+          "end_line": 44
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "promote_endpoint",
+          "type": "function",
+          "start_line": 53,
+          "end_line": 58
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "reserve",
+          "type": "function",
+          "start_line": 22,
+          "end_line": 27
+        }
+      ]
+    }
+  }
+}
