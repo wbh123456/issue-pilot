@@ -1,0 +1,405 @@
+{
+  "task_id": "issue-009",
+  "harness_version": "v0",
+  "difficulty": "hard",
+  "split": "hard",
+  "issue": "Ordering 50 widgets when 3 are in stock crashes with 500",
+  "base_commit": "4b2258b1d16e802aa9b4a82bcb4a2b0f3911f84c",
+  "repo_path": "C:\\Users\\Aaron\\issue-pilot-benchmark",
+  "expected_files": [
+    "app/inventory.py",
+    "app/orders.py"
+  ],
+  "model": "deepseek-v4-flash",
+  "temperature": 0,
+  "harness_git_sha": "94af8f97eb953c94a99adb27b4cb09660f277291",
+  "success": true,
+  "gold_test": {
+    "command": "pytest tests/_gold/test_issue_009.py::test_out_of_stock_returns_409_and_does_not_decrement -q",
+    "exit_code": 0,
+    "passed": true,
+    "output": "exit_code=0\ncommand: pytest tests/_gold/test_issue_009.py::test_out_of_stock_returns_409_and_does_not_decrement -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/_gold/test_issue_009.py::test_out_of_stock_returns_409_and_does_not_decrement\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/_gold/test_issue_009.py::test_out_of_stock_returns_409_and_does_not_decrement\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.29s"
+  },
+  "tool_call_count": 13,
+  "file_reads": 7,
+  "steps": 9,
+  "llm_calls": 9,
+  "tokens": 41547,
+  "prompt_tokens": 39171,
+  "completion_tokens": 2376,
+  "estimated_cost": null,
+  "latency": 35.72126570000546,
+  "termination": "completed",
+  "final_answer": "The fix is complete. The test passes.\n\n**Root cause:** In `app/inventory.py`, `allocate_bin` indexed `bins[\"slots\"][qty - 1]` without checking stock availability. Ordering 50 widgets (only 3 slots/units exist) raised an unhandled `IndexError`, which FastAPI surfaced as a 500.\n\n**Fix:** Added an availability check in `allocate_bin` that raises a proper HTTP 409 \"out of stock\" (consistent with the existing `reserve` function) before touching the slot list, so oversized orders fail cleanly instead of crashing.",
+  "trajectory": [
+    {
+      "step": 1,
+      "tool_call_id": "call_00_2rba2BeQqUiGwKuOxgPA1056",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_LB7fyAoMRUMjoqUEi2JG6080",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "widget"
+      },
+      "result": "app/inventory.py:6:    \"widget\": 3,\napp/inventory.py:13:    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\napp/inventory.py:38:        sku = item.get(\"sku\") or \"widget\"\napp/main.py:18:    sku: str = \"widget\"\ntests/test_inventory_orders.py:19:def test_ordering_more_widgets_than_stock_does_not_crash():\ntests/test_inventory_orders.py:23:        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\ntests/test_orders_coupon_refund.py:24:            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\ntests/test_orders_idempotency.py:25:    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_RXGSOLHGLroBhD0VxbiA1336",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import auth, calculator, inventory, orders, users, validators\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_9sl4JTdP5lpcoijlNrwX5572",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/inventory.py"
+      },
+      "result": "\"\"\"Warehouse stock and bin allocation.\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_P6NnA3qRAggkjXWOliJZ8409",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    return order\n\n\ndef refund_order(order_id: int) -> dict:\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_01_pslY1nIYaSdvVku8dbMi7930",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_inventory_orders.py"
+      },
+      "result": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_wqppR96FIwRFZw4zF2Ny4706",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_coupon_refund.py"
+      },
+      "result": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_01_tcYSXCZrbL4Xff1nNM7n5669",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_idempotency.py"
+      },
+      "result": "\"\"\"Repeated checkout keys for a single shopper.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_alice_replayed_checkout_key_is_not_a_second_order():\n    token = _login_alice()\n    headers = {\n        \"Authorization\": f\"Bearer {token}\",\n        \"Idempotency-Key\": \"abc-123\",\n    }\n    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}\n    r1 = client.post(\"/orders\", json=body, headers=headers)\n    r2 = client.post(\"/orders\", json=body, headers=headers)\n    assert r1.status_code == 200 and r2.status_code == 200\n    assert r1.json()[\"id\"] == r2.json()[\"id\"]\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_02_Lw9U6uzo9jeN7lERwiqp8922",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/payments.py"
+      },
+      "result": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_lMOkGgmmoz5IzocZxAPm8536",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/inventory.py",
+        "old_str": "    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle",
+        "new_str": "    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        available = get_stock(sku)\n        if qty > available:\n            raise HTTPException(status_code=409, detail=\"out of stock\")\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = available - qty\n    return last_aisle"
+      },
+      "result": "Updated app/inventory.py (294 -> 424 chars)"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_ET_r3oG2FysLWeQcKNEgr0Y4441",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_inventory_orders.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.38s"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_mpIf5NRg9oNTwMPvV6dF9017",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_inventory_orders.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.20s"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_ET_GH48DE1hxuiCotvwqhSd2083",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "--- status ---\n M .gitignore\n M README.md\n M app/auth.py\n M app/calculator.py\n M app/inventory.py\n M app/main.py\n M app/orders.py\n M app/payments.py\n M app/pricing.py\n M app/users.py\n M app/validators.py\n M conftest.py\n M pytest.ini\n M requirements.txt\n M tests/__init__.py\n M tests/test_auth_claims.py\n M tests/test_auth_expired.py\n M tests/test_calculator.py\n M tests/test_inventory_orders.py\n M tests/test_orders_coupon_refund.py\n M tests/test_orders_idempotency.py\n M tests/test_orders_total.py\n M tests/test_users_missing.py\n M tests/test_users_promote.py\n M tests/test_users_stale_role.py\n M tests/test_validators.py\n--- diff ---\ndiff --git a/.gitignore b/.gitignore\nindex 4ce294f..b4d61b9 100644\n--- a/.gitignore\n+++ b/.gitignore\n@@ -1,12 +1,12 @@\n-__pycache__/\n-*.pyc\n-*.pyo\n-.pytest_cache/\n-.venv/\n-venv/\n-.env\n-.DS_Store\n-.idea/\n-.vscode/\n-tests/_gold/\n-_app_bak/\n+__pycache__/\n+*.pyc\n+*.pyo\n+.pytest_cache/\n+.venv/\n+venv/\n+.env\n+.DS_Store\n+.idea/\n+.vscode/\n+tests/_gold/\n+_app_bak/\ndiff --git a/README.md b/README.md\nindex 7b4e738..a37e492 100644\n--- a/README.md\n+++ b/README.md\n@@ -1,25 +1,25 @@\n-# issue-pilot-benchmark\n-\n-A small FastAPI application used as the target repository for the IssuePilot\n-coding-agent harness.\n-\n-This repository is **intentionally broken at HEAD**. Visible tests under\n-`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\n-are not part of this tree.\n-\n-## Layout\n-\n-```\n-app/          FastAPI app, auth, users, orders, inventory, pricing, payments\n-tests/        Symptom-level reproductions (one issue per file)\n-```\n-\n-## Run tests\n-\n-```bash\n-pip install -r requirements.txt\n-pytest -q\n-```\n-\n-Do not fix the bugs by hand in the committed baseline — the harness runs\n-`git reset --hard <base_commit> && git clean -fd` before every task.\n+# issue-pilot-benchmark\n+\n+A small FastAPI application used as the target repository for the IssuePilot\n+coding-agent harness.\n+\n+This repository is **intentionally broken at HEAD**. Visible tests under\n+`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\n+are not part of this tree.\n+\n+## Layout\n+\n+```\n+app/          FastAPI app, auth, users, orders, inventory, pricing, payments\n+tests/        Symptom-level reproductions (one issue per file)\n+```\n+\n+## Run tests\n+\n+```bash\n+pip install -r requirements.txt\n+pytest -q\n+```\n+\n+Do not fix the bugs by hand in the committed baseline — the harness runs\n+`git reset --hard <base_commit> && git clean -fd` before every task.\ndiff --git a/app/auth.py b/app/auth.py\nindex 9e7ced6..b2fde2b 100644\n--- a/app/auth.py\n+++ b/app/auth.py\n@@ -1,41 +1,41 @@\n-\"\"\"JWT helpers for access tokens.\"\"\"\n-\n-from datetime import datetime, timedelta, timezone\n-\n-import jwt\n-from fastapi import HTTPException\n-\n-SECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\n-ALGO = \"HS256\"\n-\n-\n-def create_token(user_id: int, expires_in_seconds: int = 3600) -> str:\n-    \"\"\"Create a signed JWT access token.\"\"\"\n-    payload = {\n-        \"user_id\": user_id,\n-        \"exp\": datetime.now(timezone.utc)\n-        + timedelta(seconds=expires_in_seconds),\n-    }\n-    return jwt.encode(payload, SECRET, algorithm=ALGO)\n-\n-\n-def decode_token(token: str) -> dict:\n-    \"\"\"Decode a signed JWT and return its payload.\"\"\"\n-    try:\n-        return jwt.decode(token, SECRET, algorithms=[ALGO])\n-    except jwt.InvalidSignatureError as exc:\n-        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n-\n-\n-def get_current_user_id(token: str) -> int:\n-    \"\"\"Return the user_id claim from a valid token.\"\"\"\n-    payload = decode_token(token)\n-    return payload[\"user_id\"]\n-\n-\n-def require_admin(token: str) -> int:\n-    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n-    payload = decode_token(token)\n-    if payload.get(\"role\") != \"admin\":\n-        raise HTTPException(status_code=403, detail=\"admin required\")\n-    return payload[\"user_id\"]\n+\"\"\"JWT helpers for access tokens.\"\"\"\n+\n+from datetime import datetime, timedelta, timezone\n+\n+import jwt\n+from fastapi import HTTPException\n+\n+SECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\n+ALGO = \"HS256\"\n+\n+\n+def create_token(user_id: int, expires_in_seconds: int = 3600) -> str:\n+    \"\"\"Create a signed JWT access token.\"\"\"\n+    payload = {\n+        \"user_id\": user_id,\n+        \"exp\": datetime.now(timezone.utc)\n+        + timedelta(seconds=expires_in_seconds),\n+    }\n+    return jwt.encode(payload, SECRET, algorithm=ALGO)\n+\n+\n+def decode_token(token: str) -> dict:\n+    \"\"\"Decode a signed JWT and return its payload.\"\"\"\n+    try:\n+        return jwt.decode(token, SECRET, algorithms=[ALGO])\n+    except jwt.InvalidSignatureError as exc:\n+        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n+\n+\n+def get_current_user_id(token: str) -> int:\n+    \"\"\"Return the user_id claim from a valid token.\"\"\"\n+    payload = decode_token(token)\n+    return payload[\"user_id\"]\n+\n+\n+def require_admin(token: str) -> int:\n+    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n+    payload = decode_token(token)\n+    if payload.get(\"role\") != \"admin\":\n+        raise HTTPException(status_code=403, detail=\"admin required\")\n+    return payload[\"user_id\"]\ndiff --git a/app/calculator.py b/app/calculator.py\nindex 9f074e1..b1f221d 100644\n--- a/app/calculator.py\n+++ b/app/calculator.py\n@@ -1,18 +1,18 @@\n-\"\"\"Tiny numeric helpers.\"\"\"\n-\n-from collections.abc import Sequence\n-\n-\n-def sum_inclusive(start: int, end: int) -> int:\n-    \"\"\"Sum integers from ``start`` to ``end`` inclusive.\"\"\"\n-    return sum(range(start, end))\n-\n-\n-def average(nums: Sequence[float]) -> float:\n-    if not nums:\n-        raise ValueError(\"cannot average an empty sequence\")\n-    return sum(nums) / len(nums)\n-\n-\n-def is_even(n: int) -> bool:\n-    return n % 2 == 0\n+\"\"\"Tiny numeric helpers.\"\"\"\n+\n+from collections.abc import Sequence\n+\n+\n+def sum_inclusive(start: int, end: int) -> int:\n+    \"\"\"Sum integers from ``start`` to ``end`` inclusive.\"\"\"\n+    return sum(range(start, end))\n+\n+\n+def average(nums: Sequence[float]) -> float:\n+    if not nums:\n+        raise ValueError(\"cannot average an empty sequence\")\n+    return sum(nums) / len(nums)\n+\n+\n+def is_even(n: int) -> bool:\n+    return n % 2 == 0\ndiff --git a/app/inventory.py b/app/inventory.py\nindex c1d3b49..831c730 100644\n--- a/app/inventory.py\n+++ b/app/inventory.py\n@@ -1,50 +1,53 @@\n-\"\"\"Warehouse stock and bin allocation.\"\"\"\n-\n-from fastapi import HTTPException\n-\n-_DEFAULT_STOCK: dict[str, int] = {\n-    \"widget\": 3,\n-    \"gadget\": 10,\n-}\n-\n-_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n-\n-WAREHOUSE_BINS = {\n-    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n-    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n-}\n-\n-\n-def get_stock(sku: str) -> int:\n-    return int(_STOCK.get(sku, 0))\n-\n-\n-def reserve(sku: str, qty: int) -> None:\n-    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n-    available = get_stock(sku)\n-    if qty > available:\n-        raise HTTPException(status_code=409, detail=\"out of stock\")\n-    _STOCK[sku] = available - qty\n-\n-\n-def release(sku: str, qty: int) -> None:\n-    _STOCK[sku] = get_stock(sku) + qty\n-\n-\n-def allocate_bin(items: list[dict]) -> str:\n-    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n-    last_aisle = \"A1\"\n-    for item in items:\n-        sku = item.get(\"sku\") or \"widget\"\n-        qty = int(item.get(\"qty\", 1))\n-        bins = WAREHOUSE_BINS[sku]\n-        last_aisle = bins[\"aisle\"]\n-        _ = bins[\"slots\"][qty - 1]\n-        _STOCK[sku] = get_stock(sku) - qty\n-    return last_aisle\n-\n-\n-def reset_store() -> None:\n-    \"\"\"Test helper — restore seeded stock.\"\"\"\n-    _STOCK.clear()\n-    _STOCK.update(_DEFAULT_STOCK)\n+\"\"\"Warehouse stock and bin allocation.\"\"\"\n+\n+from fastapi import HTTPException\n+\n+_DEFAULT_STOCK: dict[str, int] = {\n+    \"widget\": 3,\n+    \"gadget\": 10,\n+}\n+\n+_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n+\n+WAREHOUSE_BINS = {\n+    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n+    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n+}\n+\n+\n+def get_stock(sku: str) -> int:\n+    return int(_STOCK.get(sku, 0))\n+\n+\n+def reserve(sku: str, qty: int) -> None:\n+    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n+    available = get_stock(sku)\n+    if qty > available:\n+        raise HTTPException(status_code=409, detail=\"out of stock\")\n+    _STOCK[sku] = available - qty\n+\n+\n+def release(sku: str, qty: int) -> None:\n+    _STOCK[sku] = get_stock(sku) + qty\n+\n+\n+def allocate_bin(items: list[dict]) -> str:\n+    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n+    last_aisle = \"A1\"\n+    for item in items:\n+        sku = item.get(\"sku\") or \"widget\"\n+        qty = int(item.get(\"qty\", 1))\n+        available = get_stock(sku)\n+        if qty > available:\n+            raise HTTPException(status_code=409, detail=\"out of stock\")\n+        bins = WAREHOUSE_BINS[sku]\n+        last_aisle = bins[\"aisle\"]\n+        _ = bins[\"slots\"][qty - 1]\n+        _STOCK[sku] = available - qty\n+    return last_aisle\n+\n+\n+def reset_store() -> None:\n+    \"\"\"Test helper — restore seeded stock.\"\"\"\n+    _STOCK.clear()\n+    _STOCK.update(_DEFAULT_STOCK)\ndiff --git a/app/main.py b/app/main.py\nindex 942c206..6d4b407 100644\n--- a/app/main.py\n+++ b/app/main.py\n@@ -1,97 +1,97 @@\n-\"\"\"FastAPI app wiring.\"\"\"\n-\n-from fastapi import FastAPI, Header, HTTPException\n-from pydantic import BaseModel\n-\n-from app import auth, calculator, inventory, orders, users, validators\n-\n-\n-app = FastAPI(title=\"issue-pilot-benchmark\")\n-\n-\n-class LoginBody(BaseModel):\n-    email: str\n-    password: str\n-\n-\n-class OrderItem(BaseModel):\n-    sku: str = \"widget\"\n-    price: float\n-    qty: int\n-\n-\n-class CreateOrderBody(BaseModel):\n-    items: list[OrderItem]\n-    coupon: str | None = None\n-\n-\n-def _bearer(authorization: str) -> str:\n-    if not authorization or not authorization.lower().startswith(\"bearer \"):\n-        raise HTTPException(stat\n\n...[truncated 687 chars; MAX_TOOL_OUTPUT=10000]"
+    }
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": "\nYou are a coding agent fixing one issue in a sandboxed repository.\n\nInspect relevant files before editing.\nMake the smallest correct change.\nUse run_tests after editing.\nUse git_diff to inspect your final changes.\nDo not modify tests.\nWhen the issue is fixed and tests pass, respond with a concise final answer\nand make no further tool calls.\n"
+    },
+    {
+      "role": "user",
+      "content": "Fix this issue:\n\nOrdering 50 widgets when 3 are in stock crashes with 500"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_2rba2BeQqUiGwKuOxgPA1056",
+          "function": {
+            "arguments": "{\"path\": \".\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_LB7fyAoMRUMjoqUEi2JG6080",
+          "function": {
+            "arguments": "{\"query\": \"widget\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_2rba2BeQqUiGwKuOxgPA1056",
+      "content": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_LB7fyAoMRUMjoqUEi2JG6080",
+      "content": "app/inventory.py:6:    \"widget\": 3,\napp/inventory.py:13:    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\napp/inventory.py:38:        sku = item.get(\"sku\") or \"widget\"\napp/main.py:18:    sku: str = \"widget\"\ntests/test_inventory_orders.py:19:def test_ordering_more_widgets_than_stock_does_not_crash():\ntests/test_inventory_orders.py:23:        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\ntests/test_orders_coupon_refund.py:24:            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\ntests/test_orders_idempotency.py:25:    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_RXGSOLHGLroBhD0VxbiA1336",
+          "function": {
+            "arguments": "{\"path\": \"app/main.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_9sl4JTdP5lpcoijlNrwX5572",
+          "function": {
+            "arguments": "{\"path\": \"app/inventory.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_RXGSOLHGLroBhD0VxbiA1336",
+      "content": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import auth, calculator, inventory, orders, users, validators\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_9sl4JTdP5lpcoijlNrwX5572",
+      "content": "\"\"\"Warehouse stock and bin allocation.\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_P6NnA3qRAggkjXWOliJZ8409",
+          "function": {
+            "arguments": "{\"path\": \"app/orders.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_pslY1nIYaSdvVku8dbMi7930",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_inventory_orders.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_P6NnA3qRAggkjXWOliJZ8409",
+      "content": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    return order\n\n\ndef refund_order(order_id: int) -> dict:\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_pslY1nIYaSdvVku8dbMi7930",
+      "content": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_wqppR96FIwRFZw4zF2Ny4706",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_orders_coupon_refund.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_tcYSXCZrbL4Xff1nNM7n5669",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_orders_idempotency.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        },
+        {
+          "id": "call_02_Lw9U6uzo9jeN7lERwiqp8922",
+          "function": {
+            "arguments": "{\"path\": \"app/payments.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_wqppR96FIwRFZw4zF2Ny4706",
+      "content": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_tcYSXCZrbL4Xff1nNM7n5669",
+      "content": "\"\"\"Repeated checkout keys for a single shopper.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_alice_replayed_checkout_key_is_not_a_second_order():\n    token = _login_alice()\n    headers = {\n        \"Authorization\": f\"Bearer {token}\",\n        \"Idempotency-Key\": \"abc-123\",\n    }\n    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}\n    r1 = client.post(\"/orders\", json=body, headers=headers)\n    r2 = client.post(\"/orders\", json=body, headers=headers)\n    assert r1.status_code == 200 and r2.status_code == 200\n    assert r1.json()[\"id\"] == r2.json()[\"id\"]\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_02_Lw9U6uzo9jeN7lERwiqp8922",
+      "content": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "role": "assistant",
+      "content": "Now I understand the issue. In `inventory.allocate_bin`, when ordering 50 widgets (only 3 in stock), the code does `bins[\"slots\"][qty - 1]` which raises `IndexError` since there are only 3 slots — resulting in a 500. The fix is to check availability and raise a proper 409, consistent with `reserve`.",
+      "tool_calls": [
+        {
+          "id": "call_00_lMOkGgmmoz5IzocZxAPm8536",
+          "function": {
+            "arguments": "{\"path\": \"app/inventory.py\", \"old_str\": \"    last_aisle = \\\"A1\\\"\\n    for item in items:\\n        sku = item.get(\\\"sku\\\") or \\\"widget\\\"\\n        qty = int(item.get(\\\"qty\\\", 1))\\n        bins = WAREHOUSE_BINS[sku]\\n        last_aisle = bins[\\\"aisle\\\"]\\n        _ = bins[\\\"slots\\\"][qty - 1]\\n        _STOCK[sku] = get_stock(sku) - qty\\n    return last_aisle\", \"new_str\": \"    last_aisle = \\\"A1\\\"\\n    for item in items:\\n        sku = item.get(\\\"sku\\\") or \\\"widget\\\"\\n        qty = int(item.get(\\\"qty\\\", 1))\\n        available = get_stock(sku)\\n        if qty > available:\\n            raise HTTPException(status_code=409, detail=\\\"out of stock\\\")\\n        bins = WAREHOUSE_BINS[sku]\\n        last_aisle = bins[\\\"aisle\\\"]\\n        _ = bins[\\\"slots\\\"][qty - 1]\\n        _STOCK[sku] = available - qty\\n    return last_aisle\"}",
+            "name": "edit_file"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_lMOkGgmmoz5IzocZxAPm8536",
+      "content": "Updated app/inventory.py (294 -> 424 chars)"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_r3oG2FysLWeQcKNEgr0Y4441",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_r3oG2FysLWeQcKNEgr0Y4441",
+      "content": "exit_code=0\ncommand: pytest tests/test_inventory_orders.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.38s"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_mpIf5NRg9oNTwMPvV6dF9017",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_mpIf5NRg9oNTwMPvV6dF9017",
+      "content": "exit_code=0\ncommand: pytest tests/test_inventory_orders.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_inventory_orders.py::test_ordering_more_widgets_than_stock_does_not_crash\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.20s"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_GH48DE1hxuiCotvwqhSd2083",
+          "function": {
+            "arguments": "{}",
+            "name": "git_diff"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_GH48DE1hxuiCotvwqhSd2083",
+      "content": "--- status ---\n M .gitignore\n M README.md\n M app/auth.py\n M app/calculator.py\n M app/inventory.py\n M app/main.py\n M app/orders.py\n M app/payments.py\n M app/pricing.py\n M app/users.py\n M app/validators.py\n M conftest.py\n M pytest.ini\n M requirements.txt\n M tests/__init__.py\n M tests/test_auth_claims.py\n M tests/test_auth_expired.py\n M tests/test_calculator.py\n M tests/test_inventory_orders.py\n M tests/test_orders_coupon_refund.py\n M tests/test_orders_idempotency.py\n M tests/test_orders_total.py\n M tests/test_users_missing.py\n M tests/test_users_promote.py\n M tests/test_users_stale_role.py\n M tests/test_validators.py\n--- diff ---\ndiff --git a/.gitignore b/.gitignore\nindex 4ce294f..b4d61b9 100644\n--- a/.gitignore\n+++ b/.gitignore\n@@ -1,12 +1,12 @@\n-__pycache__/\n-*.pyc\n-*.pyo\n-.pytest_cache/\n-.venv/\n-venv/\n-.env\n-.DS_Store\n-.idea/\n-.vscode/\n-tests/_gold/\n-_app_bak/\n+__pycache__/\n+*.pyc\n+*.pyo\n+.pytest_cache/\n+.venv/\n+venv/\n+.env\n+.DS_Store\n+.idea/\n+.vscode/\n+tests/_gold/\n+_app_bak/\ndiff --git a/README.md b/README.md\nindex 7b4e738..a37e492 100644\n--- a/README.md\n+++ b/README.md\n@@ -1,25 +1,25 @@\n-# issue-pilot-benchmark\n-\n-A small FastAPI application used as the target repository for the IssuePilot\n-coding-agent harness.\n-\n-This repository is **intentionally broken at HEAD**. Visible tests under\n-`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\n-are not part of this tree.\n-\n-## Layout\n-\n-```\n-app/          FastAPI app, auth, users, orders, inventory, pricing, payments\n-tests/        Symptom-level reproductions (one issue per file)\n-```\n-\n-## Run tests\n-\n-```bash\n-pip install -r requirements.txt\n-pytest -q\n-```\n-\n-Do not fix the bugs by hand in the committed baseline — the harness runs\n-`git reset --hard <base_commit> && git clean -fd` before every task.\n+# issue-pilot-benchmark\n+\n+A small FastAPI application used as the target repository for the IssuePilot\n+coding-agent harness.\n+\n+This repository is **intentionally broken at HEAD**. Visible tests under\n+`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\n+are not part of this tree.\n+\n+## Layout\n+\n+```\n+app/          FastAPI app, auth, users, orders, inventory, pricing, payments\n+tests/        Symptom-level reproductions (one issue per file)\n+```\n+\n+## Run tests\n+\n+```bash\n+pip install -r requirements.txt\n+pytest -q\n+```\n+\n+Do not fix the bugs by hand in the committed baseline — the harness runs\n+`git reset --hard <base_commit> && git clean -fd` before every task.\ndiff --git a/app/auth.py b/app/auth.py\nindex 9e7ced6..b2fde2b 100644\n--- a/app/auth.py\n+++ b/app/auth.py\n@@ -1,41 +1,41 @@\n-\"\"\"JWT helpers for access tokens.\"\"\"\n-\n-from datetime import datetime, timedelta, timezone\n-\n-import jwt\n-from fastapi import HTTPException\n-\n-SECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\n-ALGO = \"HS256\"\n-\n-\n-def create_token(user_id: int, expires_in_seconds: int = 3600) -> str:\n-    \"\"\"Create a signed JWT access token.\"\"\"\n-    payload = {\n-        \"user_id\": user_id,\n-        \"exp\": datetime.now(timezone.utc)\n-        + timedelta(seconds=expires_in_seconds),\n-    }\n-    return jwt.encode(payload, SECRET, algorithm=ALGO)\n-\n-\n-def decode_token(token: str) -> dict:\n-    \"\"\"Decode a signed JWT and return its payload.\"\"\"\n-    try:\n-        return jwt.decode(token, SECRET, algorithms=[ALGO])\n-    except jwt.InvalidSignatureError as exc:\n-        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n-\n-\n-def get_current_user_id(token: str) -> int:\n-    \"\"\"Return the user_id claim from a valid token.\"\"\"\n-    payload = decode_token(token)\n-    return payload[\"user_id\"]\n-\n-\n-def require_admin(token: str) -> int:\n-    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n-    payload = decode_token(token)\n-    if payload.get(\"role\") != \"admin\":\n-        raise HTTPException(status_code=403, detail=\"admin required\")\n-    return payload[\"user_id\"]\n+\"\"\"JWT helpers for access tokens.\"\"\"\n+\n+from datetime import datetime, timedelta, timezone\n+\n+import jwt\n+from fastapi import HTTPException\n+\n+SECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\n+ALGO = \"HS256\"\n+\n+\n+def create_token(user_id: int, expires_in_seconds: int = 3600) -> str:\n+    \"\"\"Create a signed JWT access token.\"\"\"\n+    payload = {\n+        \"user_id\": user_id,\n+        \"exp\": datetime.now(timezone.utc)\n+        + timedelta(seconds=expires_in_seconds),\n+    }\n+    return jwt.encode(payload, SECRET, algorithm=ALGO)\n+\n+\n+def decode_token(token: str) -> dict:\n+    \"\"\"Decode a signed JWT and return its payload.\"\"\"\n+    try:\n+        return jwt.decode(token, SECRET, algorithms=[ALGO])\n+    except jwt.InvalidSignatureError as exc:\n+        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n+\n+\n+def get_current_user_id(token: str) -> int:\n+    \"\"\"Return the user_id claim from a valid token.\"\"\"\n+    payload = decode_token(token)\n+    return payload[\"user_id\"]\n+\n+\n+def require_admin(token: str) -> int:\n+    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n+    payload = decode_token(token)\n+    if payload.get(\"role\") != \"admin\":\n+        raise HTTPException(status_code=403, detail=\"admin required\")\n+    return payload[\"user_id\"]\ndiff --git a/app/calculator.py b/app/calculator.py\nindex 9f074e1..b1f221d 100644\n--- a/app/calculator.py\n+++ b/app/calculator.py\n@@ -1,18 +1,18 @@\n-\"\"\"Tiny numeric helpers.\"\"\"\n-\n-from collections.abc import Sequence\n-\n-\n-def sum_inclusive(start: int, end: int) -> int:\n-    \"\"\"Sum integers from ``start`` to ``end`` inclusive.\"\"\"\n-    return sum(range(start, end))\n-\n-\n-def average(nums: Sequence[float]) -> float:\n-    if not nums:\n-        raise ValueError(\"cannot average an empty sequence\")\n-    return sum(nums) / len(nums)\n-\n-\n-def is_even(n: int) -> bool:\n-    return n % 2 == 0\n+\"\"\"Tiny numeric helpers.\"\"\"\n+\n+from collections.abc import Sequence\n+\n+\n+def sum_inclusive(start: int, end: int) -> int:\n+    \"\"\"Sum integers from ``start`` to ``end`` inclusive.\"\"\"\n+    return sum(range(start, end))\n+\n+\n+def average(nums: Sequence[float]) -> float:\n+    if not nums:\n+        raise ValueError(\"cannot average an empty sequence\")\n+    return sum(nums) / len(nums)\n+\n+\n+def is_even(n: int) -> bool:\n+    return n % 2 == 0\ndiff --git a/app/inventory.py b/app/inventory.py\nindex c1d3b49..831c730 100644\n--- a/app/inventory.py\n+++ b/app/inventory.py\n@@ -1,50 +1,53 @@\n-\"\"\"Warehouse stock and bin allocation.\"\"\"\n-\n-from fastapi import HTTPException\n-\n-_DEFAULT_STOCK: dict[str, int] = {\n-    \"widget\": 3,\n-    \"gadget\": 10,\n-}\n-\n-_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n-\n-WAREHOUSE_BINS = {\n-    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n-    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n-}\n-\n-\n-def get_stock(sku: str) -> int:\n-    return int(_STOCK.get(sku, 0))\n-\n-\n-def reserve(sku: str, qty: int) -> None:\n-    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n-    available = get_stock(sku)\n-    if qty > available:\n-        raise HTTPException(status_code=409, detail=\"out of stock\")\n-    _STOCK[sku] = available - qty\n-\n-\n-def release(sku: str, qty: int) -> None:\n-    _STOCK[sku] = get_stock(sku) + qty\n-\n-\n-def allocate_bin(items: list[dict]) -> str:\n-    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n-    last_aisle = \"A1\"\n-    for item in items:\n-        sku = item.get(\"sku\") or \"widget\"\n-        qty = int(item.get(\"qty\", 1))\n-        bins = WAREHOUSE_BINS[sku]\n-        last_aisle = bins[\"aisle\"]\n-        _ = bins[\"slots\"][qty - 1]\n-        _STOCK[sku] = get_stock(sku) - qty\n-    return last_aisle\n-\n-\n-def reset_store() -> None:\n-    \"\"\"Test helper — restore seeded stock.\"\"\"\n-    _STOCK.clear()\n-    _STOCK.update(_DEFAULT_STOCK)\n+\"\"\"Warehouse stock and bin allocation.\"\"\"\n+\n+from fastapi import HTTPException\n+\n+_DEFAULT_STOCK: dict[str, int] = {\n+    \"widget\": 3,\n+    \"gadget\": 10,\n+}\n+\n+_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n+\n+WAREHOUSE_BINS = {\n+    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n+    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n+}\n+\n+\n+def get_stock(sku: str) -> int:\n+    return int(_STOCK.get(sku, 0))\n+\n+\n+def reserve(sku: str, qty: int) -> None:\n+    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n+    available = get_stock(sku)\n+    if qty > available:\n+        raise HTTPException(status_code=409, detail=\"out of stock\")\n+    _STOCK[sku] = available - qty\n+\n+\n+def release(sku: str, qty: int) -> None:\n+    _STOCK[sku] = get_stock(sku) + qty\n+\n+\n+def allocate_bin(items: list[dict]) -> str:\n+    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n+    last_aisle = \"A1\"\n+    for item in items:\n+        sku = item.get(\"sku\") or \"widget\"\n+        qty = int(item.get(\"qty\", 1))\n+        available = get_stock(sku)\n+        if qty > available:\n+            raise HTTPException(status_code=409, detail=\"out of stock\")\n+        bins = WAREHOUSE_BINS[sku]\n+        last_aisle = bins[\"aisle\"]\n+        _ = bins[\"slots\"][qty - 1]\n+        _STOCK[sku] = available - qty\n+    return last_aisle\n+\n+\n+def reset_store() -> None:\n+    \"\"\"Test helper — restore seeded stock.\"\"\"\n+    _STOCK.clear()\n+    _STOCK.update(_DEFAULT_STOCK)\ndiff --git a/app/main.py b/app/main.py\nindex 942c206..6d4b407 100644\n--- a/app/main.py\n+++ b/app/main.py\n@@ -1,97 +1,97 @@\n-\"\"\"FastAPI app wiring.\"\"\"\n-\n-from fastapi import FastAPI, Header, HTTPException\n-from pydantic import BaseModel\n-\n-from app import auth, calculator, inventory, orders, users, validators\n-\n-\n-app = FastAPI(title=\"issue-pilot-benchmark\")\n-\n-\n-class LoginBody(BaseModel):\n-    email: str\n-    password: str\n-\n-\n-class OrderItem(BaseModel):\n-    sku: str = \"widget\"\n-    price: float\n-    qty: int\n-\n-\n-class CreateOrderBody(BaseModel):\n-    items: list[OrderItem]\n-    coupon: str | None = None\n-\n-\n-def _bearer(authorization: str) -> str:\n-    if not authorization or not authorization.lower().startswith(\"bearer \"):\n-        raise HTTPException(stat\n\n...[truncated 687 chars; MAX_TOOL_OUTPUT=10000]"
+    },
+    {
+      "role": "assistant",
+      "content": "The fix is complete. The test passes.\n\n**Root cause:** In `app/inventory.py`, `allocate_bin` indexed `bins[\"slots\"][qty - 1]` without checking stock availability. Ordering 50 widgets (only 3 slots/units exist) raised an unhandled `IndexError`, which FastAPI surfaced as a 500.\n\n**Fix:** Added an availability check in `allocate_bin` that raises a proper HTTP 409 \"out of stock\" (consistent with the existing `reserve` function) before touching the slot list, so oversized orders fail cleanly instead of crashing."
+    }
+  ],
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "sandbox_backend": "docker",
+  "sandbox_image": "issue-pilot-sandbox:py312",
+  "sandbox_network": "none",
+  "sandbox_container_name": "issue-pilot-issue-009-1822e95d",
+  "sandbox_command_count": 5,
+  "sandbox_timeout_count": 0,
+  "sandbox_truncation_count": 1,
+  "sandbox_denial_count": 0,
+  "sandbox_exec_latency_ms": 11388.22,
+  "sandbox_started": true,
+  "sandbox_cleaned_up": true
+}
