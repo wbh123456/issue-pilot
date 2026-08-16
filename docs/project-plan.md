@@ -366,6 +366,8 @@ Phase 5    Reliability + HITL
 Phase 6    Evaluation + MCP
 ```
 
+编号 `docs/PHASE*.md` 对应这里的 Day（Phase 1 = Day 1，以此类推）。已完成的 **Phase 5 文档是 Day 5**：自动恢复、双层评估、同进程一次反馈。它不是上表全称 “Reliability + HITL”。Durable HITL、checkpoint/resume、可观测性扩展、MCP 仍是 Day 6。
+
 ---
 
 # Day 1 — Benchmark + Minimal Agent Loop
