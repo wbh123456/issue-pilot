@@ -66,6 +66,7 @@ def _fake_task() -> dict[str, Any]:
         "repo_path": "C:/fake/benchmark",
         "split": "smoke",
         "test_command": "pytest tests/test_auth_expired.py -q",
+        "lint_command": "ruff check app",
         "gold_file": "test_issue_001.py",
         "gold_test": "test_expired_token_returns_401",
         "expected_files": ["app/auth.py"],
@@ -97,6 +98,11 @@ def _agent_result(harness: str) -> dict[str, Any]:
                 "status": "success",
                 "workflow_passed": True,
                 "retry_count": 0,
+                "human_retry_count": 0,
+                "human_feedback": "",
+                "attempt_history": [],
+                "structured_diagnosis": {},
+                "patch_evaluation": {},
             }
         )
     if harness == "v2":
@@ -267,6 +273,9 @@ class TestSolveTaskDispatch:
         assert record["llm_calls"] == 4
         assert record["tokens"] == 120
         assert "analysis" not in record
+        assert "recovery_success" not in record
+        assert "attempt_history" not in record
+        assert "human_retry_count" not in record
         assert Path(record["run_path"]).name.startswith("issue-001-v0-")
         assert record["sandbox_backend"] == "docker"
         assert record["sandbox_network"] == "none"
@@ -303,15 +312,99 @@ class TestSolveTaskDispatch:
         assert harness_mock.call_args.kwargs["harness"] == "v1"
         assert harness_mock.call_args.kwargs["max_steps"] == 11
         assert harness_mock.call_args.kwargs["sandbox"] is fake_sandbox.instances[0]
+        assert harness_mock.call_args.kwargs["feedback_provider"] is None
         assert record["harness_version"] == "v1"
         assert record["analysis"] == "analysis"
         assert record["plan"]["steps"] == ["a"]
         assert record["workflow_passed"] is True
         assert record["verification"]["exit_code"] == 0
         assert record["retry_count"] == 0
+        assert record["human_retry_count"] == 0
+        assert record["recovery_success"] is False
+        assert record["attempt_history"] == []
+        assert record["patch_evaluation"] == {}
+        assert record["structured_diagnosis"] == {}
+        assert record["human_feedback"] == ""
         assert "retrieval_mode" not in record
         assert "recall_at_5" not in record
         assert Path(record["run_path"]).name.startswith("issue-001-v1-")
+
+    def test_records_recovery_success_only_after_retry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
+    ) -> None:
+        monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
+        task = _fake_task()
+        recovered = _agent_result("v1")
+        recovered["retry_count"] = 1
+        recovered["workflow_passed"] = True
+        recovered["attempt_history"] = [
+            {"attempt_index": 0, "failure_source": "deterministic"}
+        ]
+        recovered["patch_evaluation"] = {
+            "issue_resolved": True,
+            "patch_scope": "appropriate",
+            "regression_risk": "low",
+            "missing_tests": False,
+            "feedback": "",
+        }
+        recovered["structured_diagnosis"] = {"root_cause": "insufficient stock"}
+
+        with (
+            patch.object(runner, "get_task", return_value=task),
+            patch.object(runner, "resolve_repo_path", return_value=Path(task["repo_path"])),
+            patch.object(runner, "reset_repo"),
+            patch.object(runner, "_run_harness", return_value=recovered),
+            patch.object(
+                runner,
+                "run_gold_test",
+                return_value={
+                    "command": "pytest ...",
+                    "exit_code": 0,
+                    "passed": True,
+                    "output": "exit_code=0",
+                },
+            ),
+            patch.object(runner, "create_client", return_value=object()),
+            patch.object(runner, "default_model", return_value="fake-model"),
+        ):
+            record = solve_task("issue-001", harness_version="v1")
+
+        assert record["success"] is True
+        assert record["retry_count"] == 1
+        assert record["recovery_success"] is True
+        assert record["attempt_history"][0]["failure_source"] == "deterministic"
+        assert record["patch_evaluation"]["issue_resolved"] is True
+        assert record["structured_diagnosis"]["root_cause"] == "insufficient stock"
+
+    def test_interactive_recovery_installs_stdin_provider(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
+    ) -> None:
+        from agent.nodes.feedback import stdin_feedback_provider
+
+        monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
+        task = _fake_task()
+
+        with (
+            patch.object(runner, "get_task", return_value=task),
+            patch.object(runner, "resolve_repo_path", return_value=Path(task["repo_path"])),
+            patch.object(runner, "reset_repo"),
+            patch.object(runner, "_run_harness", return_value=_agent_result("v1")) as harness_mock,
+            patch.object(
+                runner,
+                "run_gold_test",
+                return_value={
+                    "command": "pytest ...",
+                    "exit_code": 0,
+                    "passed": True,
+                    "output": "exit_code=0",
+                },
+            ),
+            patch.object(runner, "create_client", return_value=object()),
+            patch.object(runner, "default_model", return_value="fake-model"),
+        ):
+            solve_task("issue-001", harness_version="v1", interactive_recovery=True)
+
+        assert harness_mock.call_args.kwargs["feedback_provider"] is stdin_feedback_provider
 
     def test_dispatches_v2_and_records_retrieval_fields(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
@@ -630,6 +723,37 @@ class TestCLI:
         code = cli.main(["solve", "issue-001", "--quiet"])
         assert code == 0
         assert seen["progress"] is None
+        assert seen["interactive_recovery"] is False
+
+    def test_solve_passes_interactive_recovery(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return {
+                "task_id": task_id,
+                "harness_version": kwargs.get("harness_version"),
+                "success": True,
+                "difficulty": "easy",
+                "termination": "completed",
+                "steps": 1,
+                "llm_calls": 1,
+                "tool_call_count": 0,
+                "file_reads": 0,
+                "tokens": 1,
+                "latency": 0.1,
+                "run_path": "runs/x.json",
+                "final_answer": "ok",
+            }
+
+        monkeypatch.setattr(cli, "solve_task", fake_solve)
+        code = cli.main(
+            ["solve", "issue-001", "--harness", "v1", "--interactive-recovery"]
+        )
+        assert code == 0
+        assert seen["interactive_recovery"] is True
 
     def test_compare_runs_both_harnesses(self, monkeypatch: pytest.MonkeyPatch) -> None:
         harnesses: list[str] = []
@@ -639,6 +763,7 @@ class TestCLI:
             harness = kwargs["harness_version"]
             harnesses.append(harness)
             progress_flags.append(kwargs.get("progress") is not None)
+            assert "interactive_recovery" not in kwargs
             return {
                 "task_id": task_id,
                 "harness_version": harness,

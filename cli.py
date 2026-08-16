@@ -10,7 +10,7 @@ Usage:
     python cli.py report --split hard
     python cli.py sandbox doctor
     python cli.py sandbox build
-    python cli.py solve issue-002 --max-steps 20
+    python cli.py solve issue-001 --harness v1 --interactive-recovery
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from agent.client import default_model
 from eval.retrieval import ALL_MODES, run_retrieval_eval
 from harness.context import RETRIEVE_K
 from harness.limits import MAX_AGENT_STEPS
-from harness.progress import ConsoleReporter
+from harness.progress import ConsoleReporter, format_recovery_summary
 from retrieval.query import DEFAULT_QUERY_MODE, QUERY_MODES
 from sandbox.image import DEFAULT_IMAGE, DockerPreflightError, build_image, doctor
 
@@ -87,6 +87,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--quiet",
         action="store_true",
         help="Do not print live stage/tool progress",
+    )
+    solve.add_argument(
+        "--interactive-recovery",
+        action="store_true",
+        help="After automatic retries, prompt once for same-process recovery feedback",
     )
 
     retrieve = sub.add_parser(
@@ -229,6 +234,8 @@ def _print_summary(record: dict) -> None:
         ("file_reads", str(record.get("file_reads"))),
         ("tokens", str(record.get("tokens"))),
         ("retry_count", str(record.get("retry_count") if record.get("retry_count") is not None else "-")),
+        ("human_retry_count", str(record.get("human_retry_count") if record.get("human_retry_count") is not None else "-")),
+        ("recovery_success", str(record.get("recovery_success") if record.get("recovery_success") is not None else "-")),
         ("embedder", str(record.get("embedder_name") or "-")),
         ("query_mode", str(record.get("query_mode") or "-")),
         ("latency_s", f"{float(record.get('latency') or 0):.2f}"),
@@ -242,6 +249,8 @@ def _print_summary(record: dict) -> None:
     for key, value in rows:
         table.add_row(key, value)
     console.print(table)
+    if harness in {"v1", "v2"}:
+        console.print(format_recovery_summary(record))
 
     final = (record.get("final_answer") or "").strip()
     if final:
@@ -347,6 +356,8 @@ def _print_report(report: dict) -> None:
         table.add_column("Reads", justify="right")
         table.add_column("Tools", justify="right")
         table.add_column("Retries", justify="right")
+        table.add_column("Recovery", justify="right")
+        table.add_column("Human", justify="right")
         table.add_column("Latency s", justify="right")
         for row in cohort.get("harnesses") or []:
             table.add_row(
@@ -357,6 +368,8 @@ def _print_report(report: dict) -> None:
                 f"{float(row.get('file_reads') or 0):.1f}",
                 f"{float(row.get('tool_calls') or 0):.1f}",
                 f"{float(row.get('retries') or 0):.2f}",
+                f"{float(row.get('recovery_rate') or 0):.2f}",
+                f"{float(row.get('human_retries') or 0):.2f}",
                 f"{float(row.get('latency_s') or 0):.1f}",
             )
         console.print(table)
@@ -427,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
                 embedder_name=args.embedder,
                 query_mode=args.query_mode,
                 progress=_progress_reporter(args),
+                interactive_recovery=args.interactive_recovery,
             )
         except Exception as exc:
             console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")

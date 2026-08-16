@@ -31,6 +31,9 @@ def _solve(
     split: str = "hard",
     tokens: int = 100,
     retry_count: int = 0,
+    workflow_passed: bool | None = None,
+    recovery_success: bool | None = None,
+    human_retry_count: int | None = None,
 ) -> dict:
     record = {
         "task_id": task_id,
@@ -48,6 +51,12 @@ def _solve(
         "latency": 1.0,
         "harness_git_sha": "harness-sha",
     }
+    if workflow_passed is not None:
+        record["workflow_passed"] = workflow_passed
+    if recovery_success is not None:
+        record["recovery_success"] = recovery_success
+    if human_retry_count is not None:
+        record["human_retry_count"] = human_retry_count
     return record
 
 
@@ -92,6 +101,40 @@ class TestCohortSummary:
         assert by_h["v0"]["tokens"] == 20.0
         assert by_h["v1"]["n"] == 1
         assert by_h["v1"]["resolve_rate"] == 1.0
+        assert by_h["v0"]["recovery_rate"] == 0.0
+        assert by_h["v0"]["human_retries"] == 0.0
+
+    def test_recovery_rate_and_human_retries(self) -> None:
+        rows = summarize_solve_cohort(
+            [
+                _solve(task_id="issue-008", harness="v1", success=True, retry_count=0),
+                _solve(
+                    task_id="issue-009",
+                    harness="v1",
+                    success=True,
+                    retry_count=1,
+                    workflow_passed=True,
+                ),
+                _solve(
+                    task_id="issue-010",
+                    harness="v1",
+                    success=True,
+                    retry_count=1,
+                    recovery_success=True,
+                    human_retry_count=1,
+                ),
+                _solve(
+                    task_id="issue-011",
+                    harness="v1",
+                    success=False,
+                    retry_count=2,
+                    recovery_success=False,
+                ),
+            ]
+        )
+        row = rows[0]
+        assert row["recovery_rate"] == 0.5
+        assert row["human_retries"] == 0.25
 
 
 class TestBuildReport:
@@ -141,6 +184,8 @@ class TestBuildReport:
         assert len(report["solve_cohorts"]) == 1
         assert report["solve_cohorts"][0]["n"] == 1
         assert report["solve_cohorts"][0]["harnesses"][0]["retries"] == 1.0
+        assert report["solve_cohorts"][0]["harnesses"][0]["recovery_rate"] == 0.0
+        assert report["solve_cohorts"][0]["harnesses"][0]["human_retries"] == 0.0
         assert len(report["retrieval"]) == 1
         assert report["retrieval"][0]["hybrid"] == 1.0
         assert report["retrieval"][0]["grep"] == 0.5

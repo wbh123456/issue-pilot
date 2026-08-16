@@ -138,12 +138,14 @@ def _run_harness(
     issue: str,
     repo_path: str,
     test_command: str,
+    lint_command: str = "ruff check app",
     model: str,
     max_steps: int,
     sandbox=None,
     embedder_name: str = "hashing",
     query_mode: str = DEFAULT_QUERY_MODE,
     progress=None,
+    feedback_provider=None,
 ) -> dict[str, Any]:
     if harness == "v0":
         return run_agent(
@@ -162,16 +164,19 @@ def _run_harness(
             issue=issue,
             repo_path=repo_path,
             test_command=test_command,
+            lint_command=lint_command,
             model=model,
             max_steps=max_steps,
             sandbox=sandbox,
             progress=progress,
+            feedback_provider=feedback_provider,
         )
     return run_workflow(
         client=client,
         issue=issue,
         repo_path=repo_path,
         test_command=test_command,
+        lint_command=lint_command,
         model=model,
         max_steps=max_steps,
         sandbox=sandbox,
@@ -180,6 +185,7 @@ def _run_harness(
         embedder_name=embedder_name,
         query_mode=query_mode,
         progress=progress,
+        feedback_provider=feedback_provider,
     )
 
 
@@ -201,6 +207,11 @@ def _empty_agent_result() -> dict[str, Any]:
         "relevant_files": [],
         "retrieval_calls": 0,
         "retry_count": 0,
+        "human_retry_count": 0,
+        "human_feedback": "",
+        "attempt_history": [],
+        "structured_diagnosis": {},
+        "patch_evaluation": {},
     }
 
 
@@ -259,6 +270,8 @@ def solve_task(
     embedder_name: str = "hashing",
     query_mode: str = DEFAULT_QUERY_MODE,
     progress=None,
+    interactive_recovery: bool = False,
+    feedback_provider=None,
 ) -> dict[str, Any]:
     """Full harness cycle for one dataset task.
 
@@ -272,6 +285,11 @@ def solve_task(
     model_name = model or default_model()
     llm = client or create_client()
     retrieve_query_mode = normalize_query_mode(query_mode)
+    provider = feedback_provider
+    if provider is None and interactive_recovery:
+        from agent.nodes.feedback import stdin_feedback_provider
+
+        provider = stdin_feedback_provider
 
     reset_repo(repo_path, task["base_commit"])
 
@@ -292,12 +310,14 @@ def solve_task(
                     issue=task["issue"],
                     repo_path=str(repo_path),
                     test_command=task["test_command"],
+                    lint_command=str(task.get("lint_command") or ""),
                     model=model_name,
                     max_steps=max_steps,
                     sandbox=sandbox,
                     embedder_name=embedder_name,
                     query_mode=retrieve_query_mode,
                     progress=progress,
+                    feedback_provider=provider,
                 )
             except Exception as exc:
                 error_type = type(exc).__name__
@@ -396,6 +416,15 @@ def solve_task(
                 "workflow_passed": agent_result.get("workflow_passed"),
                 "stage_tokens": agent_result.get("stage_tokens", {}),
                 "retry_count": agent_result.get("retry_count", 0),
+                "human_retry_count": agent_result.get("human_retry_count", 0),
+                "human_feedback": agent_result.get("human_feedback") or "",
+                "attempt_history": list(agent_result.get("attempt_history") or []),
+                "structured_diagnosis": agent_result.get("structured_diagnosis") or {},
+                "patch_evaluation": agent_result.get("patch_evaluation") or {},
+                "recovery_success": (
+                    int(agent_result.get("retry_count") or 0) > 0
+                    and agent_result.get("workflow_passed") is True
+                ),
             }
         )
     if harness == "v2":

@@ -57,6 +57,14 @@ def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values)
 
 
+def _recovery_success_flag(record: dict[str, Any]) -> float:
+    """1.0 if this solve recovered after a retry. Missing field is derived."""
+    if "recovery_success" in record:
+        return 1.0 if record.get("recovery_success") else 0.0
+    retry = int(record.get("retry_count") or 0)
+    return 1.0 if retry > 0 and record.get("workflow_passed") is True else 0.0
+
+
 def _fmt(value: float | None, *, digits: int = 1) -> str:
     if value is None:
         return "-"
@@ -89,6 +97,8 @@ def summarize_solve_cohort(records: list[dict[str, Any]]) -> list[dict[str, Any]
             for r in group
             if r.get("retry_count") is not None
         ]
+        recovery = [_recovery_success_flag(r) for r in group]
+        human = [float(r.get("human_retry_count") or 0) for r in group]
         latency = [float(r["latency"]) for r in group if r.get("latency") is not None]
         rows.append(
             {
@@ -99,6 +109,8 @@ def summarize_solve_cohort(records: list[dict[str, Any]]) -> list[dict[str, Any]
                 "file_reads": _mean(reads),
                 "tool_calls": _mean(tools),
                 "retries": _mean(retries) if retries else 0.0,
+                "recovery_rate": _mean(recovery) if recovery else 0.0,
+                "human_retries": _mean(human) if human else 0.0,
                 "latency_s": _mean(latency),
             }
         )
