@@ -2,7 +2,9 @@
 
 from .analyze import analyze_issue
 from .diagnose import diagnose_failure
+from .evaluate import evaluate_patch
 from .execute import execute_plan
+from .feedback import collect_feedback
 from .plan import structured_plan
 from .retrieve import retrieve_context
 from .verify import deterministic_verify
@@ -13,5 +15,7 @@ __all__ = [
     "structured_plan",
     "execute_plan",
     "deterministic_verify",
+    "evaluate_patch",
     "diagnose_failure",
+    "collect_feedback",
 ]

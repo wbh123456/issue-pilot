@@ -1,15 +1,17 @@
 """Centralized harness limits.
 
 These are mechanical guardrails, not prompt instructions. Diagnose increments
-``retry_count``; if ``retry_count >= MAX_RETRY`` the graph escalates. With
-``MAX_RETRY=2`` that is one initial execute plus one retry, then
-``needs_human``.
+``retry_count``; if ``retry_count >= MAX_RETRY`` the graph asks for optional
+same-process feedback. With ``MAX_RETRY=2`` that is one initial execute plus
+one automatic retry. ``MAX_HUMAN_RETRY=1`` allows one feedback-guided replan
+after that; blank, missing, or a second request escalates to ``needs_human``.
 """
 
 from __future__ import annotations
 
 MAX_AGENT_STEPS = 15
 MAX_RETRY = 2
+MAX_HUMAN_RETRY = 1
 MAX_TOOL_OUTPUT = 10_000
 COMMAND_TIMEOUT = 60
 AGENT_TEMPERATURE = 0

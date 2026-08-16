@@ -12,6 +12,8 @@ from agent.graph import (
     adapt_result,
     build_graph,
     route_after_diagnose,
+    route_after_evaluate,
+    route_after_feedback,
     route_after_verify,
     run_workflow,
 )
@@ -22,7 +24,10 @@ from agent.state import (
     PlanValidationError,
     initial_state,
     parse_structured_plan,
+    patch_evaluation_passed,
 )
+from agent.tools.git import WorktreeDiff
+from agent.tools.shell import CommandOutcome
 
 
 class _Usage:
@@ -92,6 +97,63 @@ VALID_PLAN = {
     "steps": ["inspect auth.py", "fix exception handling", "run tests"],
 }
 
+VALID_DIAGNOSIS = {
+    "root_cause": "Root cause: wrong exception handler.",
+    "failure_category": "WRONG_HYPOTHESIS",
+    "new_hypothesis": "Need to catch ExpiredSignatureError",
+    "next_actions": ["inspect auth.py", "catch expired JWT", "re-run tests"],
+}
+
+STILL_FAILING_DIAGNOSIS = {
+    "root_cause": "Still failing: patch did not cover the gold case.",
+    "failure_category": "BAD_PATCH",
+    "new_hypothesis": "Also handle the missing user_id claim",
+    "next_actions": ["read auth claims", "return 401", "re-run tests"],
+}
+
+RETRY_DIAGNOSIS = {
+    "root_cause": "Retry with a 409 before indexing slots.",
+    "failure_category": "WRONG_HYPOTHESIS",
+    "new_hypothesis": "Return 409 when stock is insufficient",
+    "next_actions": ["guard allocate_bin", "return 409", "keep stock"],
+}
+
+REVISED_PLAN = {
+    **VALID_PLAN,
+    "hypothesis": "Need to catch ExpiredSignatureError",
+    "steps": ["inspect auth.py", "catch expired JWT", "re-run tests"],
+}
+
+RETRY_PLAN = {
+    **VALID_PLAN,
+    "hypothesis": "Return 409 when stock is insufficient",
+    "steps": ["guard allocate_bin", "return 409", "keep stock"],
+}
+
+VALID_EVALUATION = {
+    "issue_resolved": True,
+    "patch_scope": "appropriate",
+    "regression_risk": "low",
+    "missing_tests": False,
+    "feedback": "",
+}
+
+REJECT_EVALUATION = {
+    "issue_resolved": False,
+    "patch_scope": "too_narrow",
+    "regression_risk": "low",
+    "missing_tests": False,
+    "feedback": "missed ExpiredSignatureError",
+}
+
+HUMAN_FEEDBACK = "Catch ExpiredSignatureError and return 401"
+
+FEEDBACK_PLAN = {
+    **VALID_PLAN,
+    "hypothesis": "Catch ExpiredSignatureError and return 401",
+    "steps": ["inspect auth.py", "catch expired JWT", "re-run tests"],
+}
+
 _FAKE_INVENTORY = {
     ".": "app/\ntests/\nREADME.md",
     "app": "app/auth.py\napp/main.py",
@@ -113,6 +175,46 @@ def _config(client: FakeClient, **extra: Any) -> dict:
     }
     configurable.update(extra)
     return {"configurable": configurable}
+
+
+PASS_PATCH = WorktreeDiff(
+    status=" M app/auth.py",
+    diff="diff --git a/app/auth.py b/app/auth.py\n+fixed\n",
+)
+EMPTY_PATCH = WorktreeDiff()
+
+
+def _command_outcome(command: str, *, ok: bool) -> CommandOutcome:
+    argv = command.split()
+    return CommandOutcome(
+        command=argv,
+        exit_code=0 if ok else 1,
+        stdout="ok" if ok else "FAILED",
+    )
+
+
+def _layer1_run_command(*, pytest_ok: bool = True, ruff_ok: bool = True):
+    def _run(repo_path: str, command: str, **kwargs: Any) -> CommandOutcome:
+        is_ruff = command.strip().startswith("ruff")
+        return _command_outcome(command, ok=ruff_ok if is_ruff else pytest_ok)
+
+    return _run
+
+
+def _fail_n_then_pass_commands(failures: int):
+    pytest_calls = {"n": 0}
+
+    def _run(repo_path: str, command: str, **kwargs: Any) -> CommandOutcome:
+        if command.strip().startswith("ruff"):
+            return _command_outcome(command, ok=True)
+        pytest_calls["n"] += 1
+        return _command_outcome(command, ok=pytest_calls["n"] > failures)
+
+    return _run
+
+
+def _fail_then_pass_commands():
+    return _fail_n_then_pass_commands(1)
 
 
 class TestPlanValidation:
@@ -263,33 +365,92 @@ class TestExecuteContext:
         state["plan"] = VALID_PLAN
         state["diagnosis"] = "Need to catch IndexError."
         state["retry_count"] = 1
+        state["structured_diagnosis"] = VALID_DIAGNOSIS
+        state["attempt_history"] = [
+            {
+                "attempt_index": 0,
+                "hypothesis": VALID_PLAN["hypothesis"],
+                "deterministic_pass": False,
+                "evaluator_pass": None,
+                "failure_source": "deterministic",
+                "failure_category": "WRONG_HYPOTHESIS",
+                "root_cause": "Need to catch IndexError.",
+            }
+        ]
         payload = json.loads(_workflow_context(state))
         assert payload["diagnosis"] == "Need to catch IndexError."
         assert payload["retry_count"] == 1
+        assert payload["structured_diagnosis"]["new_hypothesis"] == (
+            VALID_DIAGNOSIS["new_hypothesis"]
+        )
+        assert payload["attempt_history"][0]["attempt_index"] == 0
+
+    def test_workflow_context_includes_human_feedback(self) -> None:
+        state = initial_state("bug")
+        state["plan"] = VALID_PLAN
+        state["human_feedback"] = "Catch ExpiredSignatureError"
+        state["human_retry_count"] = 1
+        payload = json.loads(_workflow_context(state))
+        assert payload["human_feedback"] == "Catch ExpiredSignatureError"
+        assert payload["human_retry_count"] == 1
 
 
 class TestRouting:
-    def test_pass_and_fail_from_exit_code(self) -> None:
-        assert route_after_verify({"test_result": {"exit_code": 0}}) == "mark_success"
-        assert route_after_verify({"test_result": {"exit_code": 1}}) == "diagnose"
+    def test_pass_and_fail_from_deterministic_pass(self) -> None:
+        assert (
+            route_after_verify({"test_result": {"deterministic_pass": True}})
+            == "evaluate"
+        )
+        assert (
+            route_after_verify({"test_result": {"deterministic_pass": False}})
+            == "diagnose"
+        )
         assert route_after_verify({}) == "diagnose"
+        assert (
+            route_after_evaluate(
+                {
+                    "test_result": {"deterministic_pass": True},
+                    "patch_evaluation": VALID_EVALUATION,
+                }
+            )
+            == "mark_success"
+        )
+        assert (
+            route_after_evaluate(
+                {
+                    "test_result": {"deterministic_pass": True},
+                    "patch_evaluation": {**VALID_EVALUATION, "issue_resolved": False},
+                }
+            )
+            == "diagnose"
+        )
+
+    def test_pytest_exit_code_alone_does_not_pass(self) -> None:
+        assert (
+            route_after_verify({"test_result": {"exit_code": 0, "passed": True}})
+            == "diagnose"
+        )
 
     def test_route_ignores_model_text_claims(self) -> None:
-        # Even if diagnosis/analysis claim success, routing uses exit_code only.
         state = {
             "analysis": "Tests appear to have passed.",
             "test_result": {
-                "exit_code": 1,
+                "exit_code": 0,
                 "passed": False,
-                "output": "exit_code=1\nFAILED",
+                "deterministic_pass": False,
+                "output": "exit_code=0\nAll tests passed",
             },
         }
         assert route_after_verify(state) == "diagnose"
 
     def test_diagnose_retries_until_budget(self) -> None:
-        assert route_after_diagnose({"retry_count": 0}) == "execute"
-        assert route_after_diagnose({"retry_count": 1}) == "execute"
-        assert route_after_diagnose({"retry_count": 2}) == "mark_needs_human"
+        assert route_after_diagnose({"retry_count": 0}) == "plan"
+        assert route_after_diagnose({"retry_count": 1}) == "plan"
+        assert route_after_diagnose({"retry_count": 2}) == "feedback"
+        assert route_after_feedback({"status": "feedback_retry"}) == "plan"
+        assert route_after_feedback({"status": "feedback_skipped"}) == "mark_needs_human"
+        assert route_after_feedback({"status": "feedback_declined"}) == "mark_needs_human"
+        assert route_after_feedback({"status": "feedback_refused"}) == "mark_needs_human"
 
 
 class TestWorkflowGraph:
@@ -298,6 +459,7 @@ class TestWorkflowGraph:
             [
                 _Response("Problem: expired JWT. Hypothesis: missing catch."),
                 _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(VALID_EVALUATION)),
             ]
         )
         executor = {
@@ -322,10 +484,13 @@ class TestWorkflowGraph:
             ),
             patch("agent.nodes.execute.run_agent", return_value=executor) as run_agent_mock,
             patch(
-                "agent.nodes.verify.run_tests",
-                return_value="exit_code=0\ncommand: pytest -q\n.",
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(),
             ),
-            patch("agent.nodes.verify.git_diff", return_value="--- status ---\n M app/auth.py"),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=PASS_PATCH,
+            ),
             patch("agent.graph.diagnose_failure") as diagnose_mock,
         ):
             result = run_workflow(
@@ -347,13 +512,16 @@ class TestWorkflowGraph:
         assert result["final_answer"] == "fixed"
         assert result["tool_call_count"] == 4
         assert result["file_reads"] == 2
-        # analyze + plan + executor steps
-        assert result["llm_calls"] == 2 + 3
-        assert result["tokens"] == 10 + 5 + 10 + 5 + 100 + 20
+        # analyze + plan + executor steps + evaluate
+        assert result["llm_calls"] == 2 + 3 + 1
+        assert result["tokens"] == 10 + 5 + 10 + 5 + 100 + 20 + 10 + 5
         assert "analyze" in result["stage_tokens"]
         assert "plan" in result["stage_tokens"]
         assert "execute" in result["stage_tokens"]
+        assert "evaluate" in result["stage_tokens"]
         assert result["stage_tokens"]["execute"]["llm_calls"] == 3
+        assert result["stage_tokens"]["evaluate"]["llm_calls"] == 1
+        assert result["patch_evaluation"]["issue_resolved"] is True
         run_agent_mock.assert_called_once()
         exec_kwargs = run_agent_mock.call_args.kwargs
         assert exec_kwargs.get("search_code_enabled") is False
@@ -364,16 +532,20 @@ class TestWorkflowGraph:
         assert "analysis" not in payload
         assert "guardrail" in payload
         diagnose_mock.assert_not_called()
-        assert len(client.calls) == 2  # analyze + plan only
+        assert result["attempt_history"] == []
+        assert result["retry_count"] == 0
+        assert len(client.calls) == 3  # analyze + plan + evaluate
         assert "Repository inventory" in client.calls[1]["messages"][1]["content"]
+        assert "Git diff" in client.calls[2]["messages"][1]["content"]
 
     def test_fail_retries_then_needs_human(self) -> None:
         client = FakeClient(
             [
                 _Response("analysis text"),
                 _Response(json.dumps(VALID_PLAN)),
-                _Response("Root cause: wrong exception handler."),
-                _Response("Still failing: patch did not cover the gold case."),
+                _Response(json.dumps(VALID_DIAGNOSIS)),
+                _Response(json.dumps(REVISED_PLAN)),
+                _Response(json.dumps(STILL_FAILING_DIAGNOSIS)),
             ]
         )
         executor = {
@@ -398,10 +570,13 @@ class TestWorkflowGraph:
             ),
             patch("agent.nodes.execute.run_agent", return_value=executor) as run_agent_mock,
             patch(
-                "agent.nodes.verify.run_tests",
-                return_value="exit_code=1\ncommand: pytest -q\nFAILED",
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(pytest_ok=False),
             ),
-            patch("agent.nodes.verify.git_diff", return_value="(no changes)"),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=EMPTY_PATCH,
+            ),
         ):
             result = run_workflow(
                 client=client,
@@ -415,22 +590,37 @@ class TestWorkflowGraph:
         assert result["workflow_passed"] is False
         assert result["termination"] == "needs_human"
         assert result["retry_count"] == 2
+        assert result["human_retry_count"] == 0
+        assert result["human_feedback"] == ""
         assert "Still failing" in result["diagnosis"]
         assert result["test_result"]["exit_code"] == 1
         assert run_agent_mock.call_count == 2
-        assert "diagnosis" in json.loads(run_agent_mock.call_args.kwargs["workflow_context"])
-        assert len(client.calls) == 4
-        assert result["llm_calls"] == 2 + 4 + 2
+        assert len(result["attempt_history"]) == 2
+        assert all(
+            item["failure_source"] == "deterministic" for item in result["attempt_history"]
+        )
+        assert all(item["evaluator_pass"] is None for item in result["attempt_history"])
+        retry_ctx = json.loads(run_agent_mock.call_args.kwargs["workflow_context"])
+        assert "diagnosis" in retry_ctx
+        assert "structured_diagnosis" in retry_ctx
+        assert "attempt_history" in retry_ctx
+        assert retry_ctx["plan"]["hypothesis"] == REVISED_PLAN["hypothesis"]
+        assert retry_ctx["plan"]["hypothesis"] != VALID_PLAN["hypothesis"]
+        assert len(client.calls) == 5
+        assert result["llm_calls"] == 2 + 4 + 2 + 1
         assert "diagnose" in result["stage_tokens"]
         assert result["tool_call_count"] == 6
         assert len(result["trajectory"]) == 2
 
     def test_retry_then_pass(self) -> None:
+        """Phase 5 trajectory: FAIL → diagnose → new hypothesis → retry → Layer1+Layer2 PASS."""
         client = FakeClient(
             [
                 _Response("analysis text"),
                 _Response(json.dumps(VALID_PLAN)),
-                _Response("Retry with a 409 before indexing slots."),
+                _Response(json.dumps(RETRY_DIAGNOSIS)),
+                _Response(json.dumps(RETRY_PLAN)),
+                _Response(json.dumps(VALID_EVALUATION)),
             ]
         )
         failed = {
@@ -463,10 +653,13 @@ class TestWorkflowGraph:
                 side_effect=[failed, passed],
             ),
             patch(
-                "agent.nodes.verify.run_tests",
-                side_effect=["exit_code=1\nFAILED", "exit_code=0\nok"],
+                "agent.nodes.verify.run_command",
+                side_effect=_fail_then_pass_commands(),
             ),
-            patch("agent.nodes.verify.git_diff", return_value="(no changes)"),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                side_effect=[EMPTY_PATCH, PASS_PATCH],
+            ),
         ):
             reporter = RecordingReporter()
             result = run_workflow(
@@ -481,22 +674,163 @@ class TestWorkflowGraph:
         assert result["status"] == "success"
         assert result["workflow_passed"] is True
         assert result["retry_count"] == 1
+        assert result["test_result"]["deterministic_pass"] is True
+        assert patch_evaluation_passed(result["patch_evaluation"]) is True
         assert "409" in result["diagnosis"]
+        assert result["plan"]["hypothesis"] == RETRY_PLAN["hypothesis"]
+        assert result["plan"]["hypothesis"] != VALID_PLAN["hypothesis"]
         assert result["final_answer"] == "fixed"
+        assert len(result["attempt_history"]) == 1
+        assert result["attempt_history"][0]["failure_source"] == "deterministic"
+        assert result["attempt_history"][0]["evaluator_pass"] is None
         stages = [(e[1], e[2]) for e in reporter.events if e[0] == "stage"]
         assert stages[0][0] == "analyze"
         assert ("execute", "") in stages
-        assert ("verify", "FAIL  exit 1") in stages
+        assert ("verify", "FAIL  pytest=0 ruff=1 patch=0") in stages
         assert stages[[s[0] for s in stages].index("diagnose")][1].startswith("Retry")
+        assert any(s[0] == "plan" and str(s[1]).startswith("retry") for s in stages)
         assert ("execute", "retry 1") in stages
-        assert ("verify", "PASS  exit 0") in stages
+        assert ("verify", "PASS  pytest=1 ruff=1 patch=1") in stages
+        assert any(s[0] == "evaluate" and str(s[1]).startswith("PASS") for s in stages)
         assert ("success", "") in stages
+        assert result["stage_tokens"]["evaluate"]["llm_calls"] == 1
+
+    def test_evaluator_reject_then_retry_pass(self) -> None:
+        client = FakeClient(
+            [
+                _Response("analysis text"),
+                _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(REJECT_EVALUATION)),
+                _Response(json.dumps(VALID_DIAGNOSIS)),
+                _Response(json.dumps(REVISED_PLAN)),
+                _Response(json.dumps(VALID_EVALUATION)),
+            ]
+        )
+        first = {
+            "final_answer": "too narrow",
+            "termination": "completed",
+            "steps": 1,
+            "tool_call_count": 2,
+            "file_reads": 1,
+            "prompt_tokens": 10,
+            "completion_tokens": 2,
+            "tokens": 12,
+            "latency": 0.1,
+            "trajectory": [{"tool": "edit_file"}],
+            "messages": [],
+        }
+        second = {**first, "final_answer": "fixed"}
+
+        with (
+            patch("agent.nodes.plan.list_files", side_effect=_fake_list_files),
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+            patch(
+                "agent.nodes.execute.run_agent",
+                side_effect=[first, second],
+            ) as run_agent_mock,
+            patch(
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(),
+            ),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=PASS_PATCH,
+            ),
+        ):
+            result = run_workflow(
+                client=client,
+                issue="bug",
+                repo_path="/tmp/repo",
+                test_command="pytest -q",
+                graph=build_graph(),
+            )
+
+        assert result["status"] == "success"
+        assert result["workflow_passed"] is True
+        assert result["retry_count"] == 1
+        assert result["plan"]["hypothesis"] == REVISED_PLAN["hypothesis"]
+        assert result["plan"]["hypothesis"] != VALID_PLAN["hypothesis"]
+        assert len(result["attempt_history"]) == 1
+        assert result["attempt_history"][0]["failure_source"] == "evaluator"
+        assert result["attempt_history"][0]["evaluator_pass"] is False
+        assert run_agent_mock.call_count == 2
+        retry_ctx = json.loads(run_agent_mock.call_args.kwargs["workflow_context"])
+        assert "diagnosis" in retry_ctx
+        assert retry_ctx["plan"]["hypothesis"] == REVISED_PLAN["hypothesis"]
+        assert result["patch_evaluation"]["issue_resolved"] is True
+
+    def test_evaluator_reject_then_needs_human(self) -> None:
+        client = FakeClient(
+            [
+                _Response("analysis text"),
+                _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(REJECT_EVALUATION)),
+                _Response(json.dumps(VALID_DIAGNOSIS)),
+                _Response(json.dumps(REVISED_PLAN)),
+                _Response(json.dumps(REJECT_EVALUATION)),
+                _Response(json.dumps(STILL_FAILING_DIAGNOSIS)),
+            ]
+        )
+        executor = {
+            "final_answer": "attempted fix",
+            "termination": "completed",
+            "steps": 1,
+            "tool_call_count": 2,
+            "file_reads": 1,
+            "prompt_tokens": 10,
+            "completion_tokens": 2,
+            "tokens": 12,
+            "latency": 0.1,
+            "trajectory": [{"tool": "edit_file"}],
+            "messages": [],
+        }
+
+        with (
+            patch("agent.nodes.plan.list_files", side_effect=_fake_list_files),
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+            patch("agent.nodes.execute.run_agent", return_value=executor) as run_agent_mock,
+            patch(
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(),
+            ),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=PASS_PATCH,
+            ),
+        ):
+            result = run_workflow(
+                client=client,
+                issue="bug",
+                repo_path="/tmp/repo",
+                test_command="pytest -q",
+                graph=build_graph(),
+            )
+
+        assert result["status"] == "needs_human"
+        assert result["workflow_passed"] is False
+        assert result["termination"] == "needs_human"
+        assert result["retry_count"] == 2
+        assert result["human_retry_count"] == 0
+        assert run_agent_mock.call_count == 2
+        assert len(result["attempt_history"]) == 2
+        assert all(
+            item["failure_source"] == "evaluator" for item in result["attempt_history"]
+        )
+        assert all(item["evaluator_pass"] is False for item in result["attempt_history"])
+        assert "Still failing" in result["diagnosis"]
 
     def test_verify_pass_despite_model_claiming_failure_text(self) -> None:
         client = FakeClient(
             [
                 _Response("I believe the tests failed."),
                 _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(VALID_EVALUATION)),
             ]
         )
         executor = {
@@ -521,10 +855,13 @@ class TestWorkflowGraph:
             ),
             patch("agent.nodes.execute.run_agent", return_value=executor),
             patch(
-                "agent.nodes.verify.run_tests",
-                return_value="exit_code=0\nok",
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(),
             ),
-            patch("agent.nodes.verify.git_diff", return_value="(no changes)"),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=PASS_PATCH,
+            ),
             patch("agent.graph.diagnose_failure") as diagnose_mock,
         ):
             result = run_workflow(
@@ -540,6 +877,184 @@ class TestWorkflowGraph:
         diagnose_mock.assert_not_called()
 
 
+class ScriptedProvider:
+    def __init__(self, replies: list[str | None]) -> None:
+        self.replies = list(replies)
+        self.prompts: list[str] = []
+
+    def __call__(self, prompt: str) -> str | None:
+        self.prompts.append(prompt)
+        if not self.replies:
+            raise AssertionError("unexpected feedback prompt")
+        return self.replies.pop(0)
+
+
+def _short_executor(answer: str = "attempted") -> dict[str, Any]:
+    return {
+        "final_answer": answer,
+        "termination": "completed",
+        "steps": 1,
+        "tool_call_count": 2,
+        "file_reads": 1,
+        "prompt_tokens": 10,
+        "completion_tokens": 2,
+        "tokens": 12,
+        "latency": 0.1,
+        "trajectory": [{"tool": "edit_file"}],
+        "messages": [],
+    }
+
+
+class TestFeedbackRecovery:
+    def test_declined_feedback_escalates(self) -> None:
+        provider = ScriptedProvider([""])
+        client = FakeClient(
+            [
+                _Response("analysis text"),
+                _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(VALID_DIAGNOSIS)),
+                _Response(json.dumps(REVISED_PLAN)),
+                _Response(json.dumps(STILL_FAILING_DIAGNOSIS)),
+            ]
+        )
+        with (
+            patch("agent.nodes.plan.list_files", side_effect=_fake_list_files),
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+            patch("agent.nodes.execute.run_agent", return_value=_short_executor()),
+            patch(
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(pytest_ok=False),
+            ),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=EMPTY_PATCH,
+            ),
+        ):
+            result = run_workflow(
+                client=client,
+                issue="bug",
+                repo_path="/tmp/repo",
+                test_command="pytest -q",
+                graph=build_graph(),
+                feedback_provider=provider,
+            )
+
+        assert result["status"] == "needs_human"
+        assert result["workflow_passed"] is False
+        assert result["human_retry_count"] == 0
+        assert result["human_feedback"] == ""
+        assert len(provider.prompts) == 1
+        assert "Automatic retry budget exhausted" in provider.prompts[0]
+
+    def test_feedback_retry_then_pass(self) -> None:
+        provider = ScriptedProvider([HUMAN_FEEDBACK])
+        client = FakeClient(
+            [
+                _Response("analysis text"),
+                _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(VALID_DIAGNOSIS)),
+                _Response(json.dumps(REVISED_PLAN)),
+                _Response(json.dumps(STILL_FAILING_DIAGNOSIS)),
+                _Response(json.dumps(FEEDBACK_PLAN)),
+                _Response(json.dumps(VALID_EVALUATION)),
+            ]
+        )
+        with (
+            patch("agent.nodes.plan.list_files", side_effect=_fake_list_files),
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+            patch(
+                "agent.nodes.execute.run_agent",
+                side_effect=[
+                    _short_executor("not yet"),
+                    _short_executor("still failing"),
+                    _short_executor("fixed"),
+                ],
+            ) as run_agent_mock,
+            patch(
+                "agent.nodes.verify.run_command",
+                side_effect=_fail_n_then_pass_commands(2),
+            ),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                side_effect=[EMPTY_PATCH, EMPTY_PATCH, PASS_PATCH],
+            ),
+        ):
+            result = run_workflow(
+                client=client,
+                issue="bug",
+                repo_path="/tmp/repo",
+                test_command="pytest -q",
+                graph=build_graph(),
+                feedback_provider=provider,
+            )
+
+        assert result["status"] == "success"
+        assert result["workflow_passed"] is True
+        assert result["human_retry_count"] == 1
+        assert result["human_feedback"] == HUMAN_FEEDBACK
+        assert result["plan"]["hypothesis"] == FEEDBACK_PLAN["hypothesis"]
+        assert run_agent_mock.call_count == 3
+        retry_ctx = json.loads(run_agent_mock.call_args.kwargs["workflow_context"])
+        assert retry_ctx["human_feedback"] == HUMAN_FEEDBACK
+        plan_user = client.calls[5]["messages"][1]["content"]
+        assert "Human feedback" in plan_user
+        assert HUMAN_FEEDBACK in plan_user
+
+    def test_second_feedback_attempt_is_refused(self) -> None:
+        provider = ScriptedProvider([HUMAN_FEEDBACK, "should not be asked"])
+        client = FakeClient(
+            [
+                _Response("analysis text"),
+                _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(VALID_DIAGNOSIS)),
+                _Response(json.dumps(REVISED_PLAN)),
+                _Response(json.dumps(STILL_FAILING_DIAGNOSIS)),
+                _Response(json.dumps(FEEDBACK_PLAN)),
+                _Response(json.dumps(STILL_FAILING_DIAGNOSIS)),
+            ]
+        )
+        with (
+            patch("agent.nodes.plan.list_files", side_effect=_fake_list_files),
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+            patch(
+                "agent.nodes.execute.run_agent",
+                return_value=_short_executor(),
+            ) as run_agent_mock,
+            patch(
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(pytest_ok=False),
+            ),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=EMPTY_PATCH,
+            ),
+        ):
+            result = run_workflow(
+                client=client,
+                issue="bug",
+                repo_path="/tmp/repo",
+                test_command="pytest -q",
+                graph=build_graph(),
+                feedback_provider=provider,
+            )
+
+        assert result["status"] == "needs_human"
+        assert result["workflow_passed"] is False
+        assert result["human_retry_count"] == 1
+        assert run_agent_mock.call_count == 3
+        assert len(provider.prompts) == 1
+        assert provider.replies == ["should not be asked"]
+
+
 class TestSandboxRuntimeConfig:
     def test_sandbox_is_threaded_not_serialized_in_state(self) -> None:
         fake_sandbox = object()
@@ -547,6 +1062,7 @@ class TestSandboxRuntimeConfig:
             [
                 _Response("analysis text"),
                 _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(VALID_EVALUATION)),
             ]
         )
         executor = {
@@ -571,10 +1087,13 @@ class TestSandboxRuntimeConfig:
             ),
             patch("agent.nodes.execute.run_agent", return_value=executor) as run_agent_mock,
             patch(
-                "agent.nodes.verify.run_tests",
-                return_value="exit_code=0\nok",
-            ) as run_tests_mock,
-            patch("agent.nodes.verify.git_diff", return_value="(no changes)") as git_diff_mock,
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(),
+            ) as run_command_mock,
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=PASS_PATCH,
+            ) as inspect_mock,
             patch("agent.graph.diagnose_failure") as diagnose_mock,
         ):
             result = run_workflow(
@@ -588,8 +1107,8 @@ class TestSandboxRuntimeConfig:
 
         assert result["workflow_passed"] is True
         assert run_agent_mock.call_args.kwargs["sandbox"] is fake_sandbox
-        assert run_tests_mock.call_args.kwargs["sandbox"] is fake_sandbox
-        assert git_diff_mock.call_args.kwargs["sandbox"] is fake_sandbox
+        assert run_command_mock.call_args.kwargs["sandbox"] is fake_sandbox
+        assert inspect_mock.call_args.kwargs["sandbox"] is fake_sandbox
         diagnose_mock.assert_not_called()
         assert "sandbox" not in (result.get("messages") or [])
         for key in ("final_answer", "termination", "steps", "tokens", "trajectory"):
@@ -647,7 +1166,12 @@ class TestAdaptResult:
         state["status"] = "success"
         state["analysis"] = "a"
         state["plan"] = VALID_PLAN
-        state["test_result"] = {"exit_code": 0, "passed": True}
+        state["test_result"] = {
+            "exit_code": 0,
+            "passed": True,
+            "deterministic_pass": True,
+        }
+        state["patch_evaluation"] = VALID_EVALUATION
         state["telemetry"] = {
             "tool_call_count": 2,
             "file_reads": 1,
@@ -667,6 +1191,7 @@ class TestAdaptResult:
         assert out["plan"] == VALID_PLAN
         assert out["retry_count"] == 0
         assert out["stage_tokens"]["analyze"]["llm_calls"] == 1
+        assert out["patch_evaluation"]["issue_resolved"] is True
 
     def test_needs_human_termination(self) -> None:
         state = initial_state("bug")

@@ -37,6 +37,16 @@ def _workflow_context(state: AgentState) -> str:
     if diagnosis:
         payload["diagnosis"] = diagnosis
         payload["retry_count"] = int(state.get("retry_count") or 0)
+    structured = state.get("structured_diagnosis") or {}
+    if structured:
+        payload["structured_diagnosis"] = structured
+    history = list(state.get("attempt_history") or [])
+    if history:
+        payload["attempt_history"] = history
+    feedback = (state.get("human_feedback") or "").strip()
+    if feedback:
+        payload["human_feedback"] = feedback
+        payload["human_retry_count"] = int(state.get("human_retry_count") or 0)
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 

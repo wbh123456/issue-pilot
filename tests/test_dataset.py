@@ -37,8 +37,10 @@ class TestDataset:
             assert f"def {task['gold_test']}(" in text
             assert _SHA_RE.match(task["base_commit"]), task["id"]
             assert task["test_command"].startswith("pytest tests/")
+            assert task["lint_command"].startswith("ruff ")
             assert "::_" not in task["test_command"]
             assert task["gold_file"] not in task["test_command"]
+            assert task["gold_file"] not in task["lint_command"]
 
     def test_visible_tests_do_not_name_issues_or_gold(self) -> None:
         tests_dir = BENCHMARK_ROOT / "tests"

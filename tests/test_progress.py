@@ -11,6 +11,8 @@ from harness.progress import (
     ConsoleReporter,
     NullReporter,
     format_note_line,
+    format_plan_detail,
+    format_recovery_summary,
     format_size,
     format_stage_line,
     format_tool_line,
@@ -42,6 +44,9 @@ class TestFormatters:
         out = preview(long)
         assert len(out) <= PREVIEW_CHARS
         assert out.endswith("...")
+        mid = "y" * 800
+        assert preview(mid) == mid
+        assert "..." not in format_note_line(mid)
 
     def test_preview_heading_gets_colon(self) -> None:
         out = preview(
@@ -55,8 +60,10 @@ class TestFormatters:
             "**Hypothesis**\nIdempotency key is ignored"
         )
         assert note.startswith("  - ")
-        assert "Problem in plain terms: A client retried checkout." in note
-        assert "Hypothesis: Idempotency key is ignored" in note
+        assert "Problem in plain terms:" in note
+        assert "A client retried checkout." in note
+        assert "Hypothesis:" in note
+        assert "Idempotency key is ignored" in note
 
     def test_read_file_shows_size_not_body(self) -> None:
         body = "def f():\n    return 1\n" * 80
@@ -114,8 +121,76 @@ class TestFormatters:
         assert "  - retry 1" in retry
         note = format_note_line("  hello\nworld")
         assert note.startswith("  - ")
-        assert "hello world" in note
-        assert PREVIEW_CHARS > 160
+        assert "hello" in note
+        assert "world" in note
+        assert PREVIEW_CHARS >= 4000
+
+    def test_format_plan_detail_is_complete(self) -> None:
+        plan = {
+            "problem": "GET /auth/me with an old token returns 500",
+            "hypothesis": "decode_token only catches InvalidSignatureError",
+            "files_to_inspect": [
+                "app/auth.py",
+                "app/main.py",
+                "app/users.py",
+            ],
+            "steps": [
+                "Inspect decode_token exception paths",
+                "Catch ExpiredSignatureError and return 401",
+                "Run pytest -q",
+            ],
+        }
+        detail = format_plan_detail(plan)
+        assert "problem: GET /auth/me" in detail
+        assert "hypothesis: decode_token only catches" in detail
+        assert "files: app/auth.py, app/main.py, app/users.py" in detail
+        assert "1. Inspect decode_token exception paths" in detail
+        assert "3. Run pytest -q" in detail
+        assert "(+1)" not in detail
+        retry = format_plan_detail(plan, retry=True)
+        assert retry.startswith("retry")
+        rendered = format_stage_line("plan", retry)
+        assert "### plan" in rendered
+        assert "  - problem:" in rendered
+        assert "  - 1. Inspect decode_token" in rendered
+        assert format_plan_detail({}) == "files: (none)\nsteps: (none)"
+
+    def test_format_recovery_summary(self) -> None:
+        assert (
+            format_recovery_summary({})
+            == "attempts=1 Layer1=- Layer2=- human_retry=0"
+        )
+        assert (
+            format_recovery_summary(
+                {
+                    "retry_count": 1,
+                    "human_retry_count": 1,
+                    "verification": {"deterministic_pass": True},
+                    "patch_evaluation": {
+                        "issue_resolved": True,
+                        "patch_scope": "appropriate",
+                        "regression_risk": "low",
+                        "missing_tests": False,
+                    },
+                }
+            )
+            == "attempts=2 Layer1=PASS Layer2=PASS human_retry=1"
+        )
+        assert (
+            format_recovery_summary(
+                {
+                    "retry_count": 0,
+                    "test_result": {"deterministic_pass": False},
+                    "patch_evaluation": {
+                        "issue_resolved": False,
+                        "patch_scope": "too_narrow",
+                        "regression_risk": "low",
+                        "missing_tests": False,
+                    },
+                }
+            )
+            == "attempts=1 Layer1=FAIL Layer2=FAIL human_retry=0"
+        )
 
     def test_error_is_previewed(self) -> None:
         _, outcome = summarize_tool(

@@ -19,6 +19,8 @@ from agent.graph import (
 from agent.nodes.execute import execute_plan
 from agent.nodes.retrieve import retrieve_context
 from agent.state import initial_state
+from agent.tools.git import WorktreeDiff
+from agent.tools.shell import CommandOutcome
 from retrieval.dense import HashingEmbedder
 
 
@@ -66,6 +68,42 @@ VALID_PLAN = {
     "steps": ["inspect auth.py", "fix exception handling", "run tests"],
 }
 
+VALID_DIAGNOSIS = {
+    "root_cause": "Root cause: wrong exception handler.",
+    "failure_category": "WRONG_HYPOTHESIS",
+    "new_hypothesis": "Need to catch ExpiredSignatureError",
+    "next_actions": ["inspect auth.py", "catch expired JWT", "re-run tests"],
+}
+
+STILL_FAILING_DIAGNOSIS = {
+    "root_cause": "Still failing: patch did not cover the gold case.",
+    "failure_category": "BAD_PATCH",
+    "new_hypothesis": "Also handle the missing user_id claim",
+    "next_actions": ["read auth claims", "return 401", "re-run tests"],
+}
+
+REVISED_PLAN = {
+    **VALID_PLAN,
+    "hypothesis": "Need to catch ExpiredSignatureError",
+    "steps": ["inspect auth.py", "catch expired JWT", "re-run tests"],
+}
+
+VALID_EVALUATION = {
+    "issue_resolved": True,
+    "patch_scope": "appropriate",
+    "regression_risk": "low",
+    "missing_tests": False,
+    "feedback": "",
+}
+
+REJECT_EVALUATION = {
+    "issue_resolved": False,
+    "patch_scope": "too_narrow",
+    "regression_risk": "low",
+    "missing_tests": False,
+    "feedback": "missed allocate_bin overflow",
+}
+
 _FAKE_INVENTORY = {
     ".": "app/\ntests/\nREADME.md",
     "app": "app/auth.py\napp/main.py",
@@ -75,6 +113,26 @@ _FAKE_INVENTORY = {
 
 def _fake_list_files(repo_path: str, path: str = ".") -> str:
     return _FAKE_INVENTORY.get(path, "Error: path not found")
+
+
+PASS_PATCH = WorktreeDiff(
+    status=" M app/inventory.py",
+    diff="diff --git a/app/inventory.py b/app/inventory.py\n+fixed\n",
+)
+EMPTY_PATCH = WorktreeDiff()
+
+
+def _layer1_run_command(*, pytest_ok: bool = True, ruff_ok: bool = True):
+    def _run(repo_path: str, command: str, **kwargs: Any) -> CommandOutcome:
+        is_ruff = command.strip().startswith("ruff")
+        ok = ruff_ok if is_ruff else pytest_ok
+        return CommandOutcome(
+            command=command.split(),
+            exit_code=0 if ok else 1,
+            stdout="ok" if ok else "FAILED",
+        )
+
+    return _run
 
 
 def _node_ids(compiled) -> set[str]:
@@ -121,8 +179,19 @@ class TestGraphTopology:
         assert "retrieve" not in nodes
         assert ("analyze", "plan") in edges
         assert ("analyze", "retrieve") not in edges
-        assert ("diagnose", "execute") in edges
+        assert ("diagnose", "plan") in edges
+        assert ("diagnose", "execute") not in edges
         assert "mark_needs_human" in nodes
+        assert "feedback" in nodes
+        assert ("diagnose", "feedback") in edges
+        assert ("diagnose", "mark_needs_human") not in edges
+        assert ("feedback", "plan") in edges
+        assert ("feedback", "mark_needs_human") in edges
+        assert "evaluate" in nodes
+        assert ("verify", "evaluate") in edges
+        assert ("evaluate", "mark_success") in edges
+        assert ("evaluate", "diagnose") in edges
+        assert ("verify", "mark_success") not in edges
 
     def test_v2_inserts_retrieve_between_analyze_and_plan(self) -> None:
         compiled = build_graph(include_retrieve=True)
@@ -132,8 +201,18 @@ class TestGraphTopology:
         assert ("analyze", "retrieve") in edges
         assert ("retrieve", "plan") in edges
         assert ("analyze", "plan") not in edges
-        assert ("diagnose", "execute") in edges
+        assert ("diagnose", "plan") in edges
+        assert ("diagnose", "execute") not in edges
         assert "mark_needs_human" in nodes
+        assert "feedback" in nodes
+        assert ("diagnose", "feedback") in edges
+        assert ("diagnose", "mark_needs_human") not in edges
+        assert ("feedback", "plan") in edges
+        assert ("feedback", "mark_needs_human") in edges
+        assert "evaluate" in nodes
+        assert ("verify", "evaluate") in edges
+        assert ("evaluate", "mark_success") in edges
+        assert ("verify", "mark_success") not in edges
 
     def test_singletons_are_distinct(self) -> None:
         v1 = get_graph()
@@ -209,6 +288,7 @@ class TestV2Workflow:
             [
                 _Response("Hypothesis: allocate_bin overflow."),
                 _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(VALID_EVALUATION)),
             ]
         )
         executor = {
@@ -243,10 +323,13 @@ class TestV2Workflow:
             ),
             patch("agent.nodes.execute.run_agent", return_value=executor) as run_agent_mock,
             patch(
-                "agent.nodes.verify.run_tests",
-                return_value="exit_code=0\nok",
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(),
             ),
-            patch("agent.nodes.verify.git_diff", return_value="(no changes)"),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=PASS_PATCH,
+            ),
         ):
             result = run_workflow(
                 client=client,
@@ -257,7 +340,7 @@ class TestV2Workflow:
             )
 
         assert retrieve_calls == [1]
-        assert len(client.calls) == 2
+        assert len(client.calls) == 3
         plan_user = client.calls[1]["messages"][1]["content"]
         assert "Retrieved code" in plan_user
         assert "allocate_bin" in plan_user
@@ -269,8 +352,159 @@ class TestV2Workflow:
         assert result["retrieval_calls"] == 1
         assert result["stage_tokens"]["retrieve"]["llm_calls"] == 0
         assert result["workflow_passed"] is True
-        assert result["llm_calls"] == 2 + 1
+        assert result["llm_calls"] == 2 + 1 + 1
+        assert result["stage_tokens"]["evaluate"]["llm_calls"] == 1
         assert run_agent_mock.call_args.kwargs.get("search_code_enabled") is False
+
+    def test_fail_retries_then_needs_human_without_re_retrieve(self) -> None:
+        client = FakeClient(
+            [
+                _Response("Hypothesis: allocate_bin overflow."),
+                _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(VALID_DIAGNOSIS)),
+                _Response(json.dumps(REVISED_PLAN)),
+                _Response(json.dumps(STILL_FAILING_DIAGNOSIS)),
+            ]
+        )
+        executor = {
+            "final_answer": "attempted fix",
+            "termination": "completed",
+            "steps": 2,
+            "tool_call_count": 3,
+            "file_reads": 1,
+            "prompt_tokens": 50,
+            "completion_tokens": 10,
+            "tokens": 60,
+            "latency": 0.2,
+            "trajectory": [{"tool": "edit_file"}],
+            "messages": [],
+        }
+
+        retrieve_calls: list[int] = []
+
+        def fake_retrieve(state: dict, config: RunnableConfig) -> dict:
+            retrieve_calls.append(1)
+            return _fake_retrieve(state, config)
+
+        with (
+            patch(
+                "agent.nodes.retrieve.retrieve_context",
+                new=fake_retrieve,
+            ),
+            patch("agent.nodes.plan.list_files", side_effect=_fake_list_files),
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+            patch("agent.nodes.execute.run_agent", return_value=executor) as run_agent_mock,
+            patch(
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(pytest_ok=False),
+            ),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=EMPTY_PATCH,
+            ),
+        ):
+            result = run_workflow(
+                client=client,
+                issue="Ordering 50 widgets crashes with 500",
+                repo_path="/tmp/repo",
+                test_command="pytest -q",
+                graph=build_graph(include_retrieve=True),
+            )
+
+        assert retrieve_calls == [1]
+        assert result["status"] == "needs_human"
+        assert result["workflow_passed"] is False
+        assert result["termination"] == "needs_human"
+        assert result["retry_count"] == 2
+        assert result["human_retry_count"] == 0
+        assert "Still failing" in result["diagnosis"]
+        assert run_agent_mock.call_count == 2
+        assert len(result["attempt_history"]) == 2
+        assert all(
+            item["failure_source"] == "deterministic" for item in result["attempt_history"]
+        )
+        retry_ctx = json.loads(run_agent_mock.call_args.kwargs["workflow_context"])
+        assert "diagnosis" in retry_ctx
+        assert "attempt_history" in retry_ctx
+        assert retry_ctx["plan"]["hypothesis"] == REVISED_PLAN["hypothesis"]
+        assert len(client.calls) == 5
+
+    def test_evaluator_reject_retries_without_re_retrieve(self) -> None:
+        client = FakeClient(
+            [
+                _Response("Hypothesis: allocate_bin overflow."),
+                _Response(json.dumps(VALID_PLAN)),
+                _Response(json.dumps(REJECT_EVALUATION)),
+                _Response(json.dumps(VALID_DIAGNOSIS)),
+                _Response(json.dumps(REVISED_PLAN)),
+                _Response(json.dumps(VALID_EVALUATION)),
+            ]
+        )
+        first = {
+            "final_answer": "too narrow",
+            "termination": "completed",
+            "steps": 1,
+            "tool_call_count": 0,
+            "file_reads": 0,
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+            "tokens": 2,
+            "latency": 0.1,
+            "trajectory": [],
+            "messages": [],
+        }
+        second = {**first, "final_answer": "fixed"}
+
+        retrieve_calls: list[int] = []
+
+        def fake_retrieve(state: dict, config: RunnableConfig) -> dict:
+            retrieve_calls.append(1)
+            return _fake_retrieve(state, config)
+
+        with (
+            patch(
+                "agent.nodes.retrieve.retrieve_context",
+                new=fake_retrieve,
+            ),
+            patch("agent.nodes.plan.list_files", side_effect=_fake_list_files),
+            patch(
+                "agent.nodes.plan.resolve_in_repo",
+                side_effect=lambda repo, path: MagicMock(exists=lambda: True),
+            ),
+            patch(
+                "agent.nodes.execute.run_agent",
+                side_effect=[first, second],
+            ) as run_agent_mock,
+            patch(
+                "agent.nodes.verify.run_command",
+                side_effect=_layer1_run_command(),
+            ),
+            patch(
+                "agent.nodes.verify.inspect_worktree",
+                return_value=PASS_PATCH,
+            ),
+        ):
+            result = run_workflow(
+                client=client,
+                issue="Ordering 50 widgets crashes with 500",
+                repo_path="/tmp/repo",
+                test_command="pytest -q",
+                graph=build_graph(include_retrieve=True),
+            )
+
+        assert retrieve_calls == [1]
+        assert result["status"] == "success"
+        assert result["workflow_passed"] is True
+        assert result["retry_count"] == 1
+        assert result["attempt_history"][0]["failure_source"] == "evaluator"
+        assert result["plan"]["hypothesis"] == REVISED_PLAN["hypothesis"]
+        assert run_agent_mock.call_count == 2
+        retry_ctx = json.loads(run_agent_mock.call_args.kwargs["workflow_context"])
+        assert "diagnosis" in retry_ctx
+        assert "retrieved" in retry_ctx
 
 
 class TestExecuteSearchCode:

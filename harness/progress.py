@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
-PREVIEW_CHARS = 480
+PREVIEW_CHARS = 4000
 STAGE_RULE = "=" * 32
 
 _EXIT_CODE_RE = re.compile(r"exit_code=(-?\d+)")
@@ -80,6 +80,65 @@ def summarize_files(paths: list[str], *, show: int = 2) -> str:
     return text
 
 
+def format_plan_detail(plan: dict[str, Any] | None, *, retry: bool = False) -> str:
+    """Full structured plan for the live CLI. No field truncation."""
+    plan = plan or {}
+    files = [p for p in (plan.get("files_to_inspect") or []) if p]
+    steps = [str(s).strip() for s in (plan.get("steps") or []) if str(s).strip()]
+    lines: list[str] = []
+    if retry:
+        lines.append("retry")
+    problem = str(plan.get("problem") or "").strip()
+    hypothesis = str(plan.get("hypothesis") or "").strip()
+    if problem:
+        lines.append(f"problem: {problem}")
+    if hypothesis:
+        lines.append(f"hypothesis: {hypothesis}")
+    lines.append(f"files: {', '.join(files) if files else '(none)'}")
+    if steps:
+        for i, step in enumerate(steps, 1):
+            lines.append(f"{i}. {step}")
+    else:
+        lines.append("steps: (none)")
+    return "\n".join(lines)
+
+
+def format_recovery_summary(record: dict[str, Any] | None = None) -> str:
+    """One-line CLI snapshot: attempts / Layer1 / Layer2 / human retry."""
+    record = record or {}
+    retry_count = int(record.get("retry_count") or 0)
+    human_retry_count = int(record.get("human_retry_count") or 0)
+    verification = record.get("verification")
+    if not isinstance(verification, dict):
+        verification = record.get("test_result") or {}
+    layer1 = None
+    if isinstance(verification, dict) and "deterministic_pass" in verification:
+        layer1 = verification.get("deterministic_pass") is True
+    evaluation = record.get("patch_evaluation") or {}
+    layer2 = None
+    if isinstance(evaluation, dict) and evaluation:
+        layer2 = (
+            evaluation.get("issue_resolved") is True
+            and evaluation.get("patch_scope") == "appropriate"
+            and evaluation.get("regression_risk") == "low"
+            and evaluation.get("missing_tests") is False
+        )
+    return (
+        f"attempts={retry_count + 1} "
+        f"Layer1={_pass_fail(layer1)} "
+        f"Layer2={_pass_fail(layer2)} "
+        f"human_retry={human_retry_count}"
+    )
+
+
+def _pass_fail(value: bool | None) -> str:
+    if value is True:
+        return "PASS"
+    if value is False:
+        return "FAIL"
+    return "-"
+
+
 def format_size(n: int) -> str:
     if n >= 1000:
         return f"{n / 1000:.1f}k chars"
@@ -139,13 +198,33 @@ def summarize_tool(
 def format_stage_line(name: str, detail: str = "") -> str:
     lines = [f"### {name}", STAGE_RULE]
     detail = (detail or "").strip()
-    if detail:
-        lines.append(f"  - {detail}")
+    if not detail:
+        return "\n".join(lines)
+    for raw in detail.splitlines():
+        line = raw.strip()
+        if line:
+            lines.append(f"  - {line}")
     return "\n".join(lines)
 
 
 def format_note_line(text: str) -> str:
-    return f"  - {preview(text)}"
+    """Print notes as indented lines. Truncate only past ``PREVIEW_CHARS``."""
+    parts: list[str] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        heading = _heading_label(line)
+        parts.append(heading if heading is not None else line)
+    if not parts:
+        return "  -"
+    body = "\n".join(parts)
+    if len(body) > PREVIEW_CHARS:
+        body = body[: PREVIEW_CHARS - 3].rstrip() + "..."
+        parts = body.splitlines()
+    lines = [f"  - {parts[0]}"]
+    lines.extend(f"    {line}" for line in parts[1:])
+    return "\n".join(lines)
 
 
 def format_tool_line(

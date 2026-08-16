@@ -10,15 +10,31 @@ from langgraph.graph import END, START, StateGraph
 
 from agent.nodes import (
     analyze_issue,
+    collect_feedback,
     diagnose_failure,
     deterministic_verify,
+    evaluate_patch,
     execute_plan,
     structured_plan,
 )
 from agent.nodes._runtime import get_reporter
-from agent.state import AgentState, initial_state
+from agent.state import (
+    AgentState,
+    EvaluationValidationError,
+    initial_state,
+    patch_evaluation_passed,
+)
 from harness.limits import MAX_AGENT_STEPS, MAX_RETRY
 from harness.progress import ProgressReporter
+
+
+def _layer2_passed(raw: object) -> bool:
+    if not raw:
+        return False
+    try:
+        return patch_evaluation_passed(raw)
+    except EvaluationValidationError:
+        return False
 
 
 def mark_success(state: AgentState, config: RunnableConfig) -> dict:
@@ -33,33 +49,54 @@ def mark_needs_human(state: AgentState, config: RunnableConfig) -> dict:
     return {"status": "needs_human"}
 
 
-def route_after_verify(state: AgentState) -> Literal["mark_success", "diagnose"]:
-    """Route strictly from the deterministic process exit code."""
+def route_after_verify(state: AgentState) -> Literal["evaluate", "diagnose"]:
+    """Layer 1 pass goes to the evaluator; fail goes to diagnose (fail-closed)."""
     test_result = state.get("test_result") or {}
-    if int(test_result.get("exit_code", 1)) == 0:
+    if test_result.get("deterministic_pass") is True:
+        return "evaluate"
+    return "diagnose"
+
+
+def route_after_evaluate(state: AgentState) -> Literal["mark_success", "diagnose"]:
+    """Mechanical Layer 2 pass only; never promote a Layer 1 failure."""
+    test_result = state.get("test_result") or {}
+    if test_result.get("deterministic_pass") is not True:
+        return "diagnose"
+    if _layer2_passed(state.get("patch_evaluation") or {}):
         return "mark_success"
     return "diagnose"
 
 
-def route_after_diagnose(state: AgentState) -> Literal["execute", "mark_needs_human"]:
-    """Re-execute while ``retry_count < MAX_RETRY``; otherwise escalate."""
+def route_after_diagnose(state: AgentState) -> Literal["plan", "feedback"]:
+    """Replan while ``retry_count < MAX_RETRY``; otherwise ask for feedback."""
     if int(state.get("retry_count") or 0) >= MAX_RETRY:
-        return "mark_needs_human"
-    return "execute"
+        return "feedback"
+    return "plan"
+
+
+def route_after_feedback(state: AgentState) -> Literal["plan", "mark_needs_human"]:
+    """One accepted feedback replan; skip/decline/refuse escalate."""
+    if state.get("status") == "feedback_retry":
+        return "plan"
+    return "mark_needs_human"
 
 
 def build_graph(*, include_retrieve: bool = False):
-    """Build analyze → [retrieve] → plan → execute → verify → (PASS | diagnose → retry | human).
+    """Build analyze → [retrieve] → plan → execute → verify → evaluate | diagnose.
 
     Default (``include_retrieve=False``) is the V1 graph. V2 inserts a
-    deterministic retrieve node between analyze and plan.
+    deterministic retrieve node between analyze and plan. After the automatic
+    retry budget, ``feedback`` may allow one same-process replan; otherwise
+    the graph ends at ``mark_needs_human``.
     """
     graph = StateGraph(AgentState)
     graph.add_node("analyze", analyze_issue)
     graph.add_node("plan", structured_plan)
     graph.add_node("execute", execute_plan)
     graph.add_node("verify", deterministic_verify)
+    graph.add_node("evaluate", evaluate_patch)
     graph.add_node("diagnose", diagnose_failure)
+    graph.add_node("feedback", collect_feedback)
     graph.add_node("mark_success", mark_success)
     graph.add_node("mark_needs_human", mark_needs_human)
 
@@ -78,6 +115,14 @@ def build_graph(*, include_retrieve: bool = False):
         "verify",
         route_after_verify,
         {
+            "evaluate": "evaluate",
+            "diagnose": "diagnose",
+        },
+    )
+    graph.add_conditional_edges(
+        "evaluate",
+        route_after_evaluate,
+        {
             "mark_success": "mark_success",
             "diagnose": "diagnose",
         },
@@ -87,7 +132,15 @@ def build_graph(*, include_retrieve: bool = False):
         "diagnose",
         route_after_diagnose,
         {
-            "execute": "execute",
+            "plan": "plan",
+            "feedback": "feedback",
+        },
+    )
+    graph.add_conditional_edges(
+        "feedback",
+        route_after_feedback,
+        {
+            "plan": "plan",
             "mark_needs_human": "mark_needs_human",
         },
     )
@@ -120,7 +173,9 @@ def adapt_result(state: AgentState) -> dict[str, Any]:
     telemetry = state.get("telemetry") or {}
     test_result = state.get("test_result") or {}
     status = state.get("status") or ""
-    passed = int(test_result.get("exit_code", 1)) == 0
+    layer1 = test_result.get("deterministic_pass") is True
+    layer2 = _layer2_passed(state.get("patch_evaluation") or {})
+    passed = layer1 and layer2
 
     if status == "success" or passed:
         termination = "completed"
@@ -148,6 +203,9 @@ def adapt_result(state: AgentState) -> dict[str, Any]:
         "analysis": state.get("analysis", ""),
         "plan": state.get("plan", {}),
         "diagnosis": state.get("diagnosis", ""),
+        "structured_diagnosis": state.get("structured_diagnosis") or {},
+        "attempt_history": list(state.get("attempt_history") or []),
+        "patch_evaluation": state.get("patch_evaluation") or {},
         "test_result": test_result,
         "status": status,
         "llm_calls": telemetry.get("llm_calls", 0),
@@ -155,6 +213,8 @@ def adapt_result(state: AgentState) -> dict[str, Any]:
         "relevant_files": state.get("relevant_files") or [],
         "retrieval_calls": telemetry.get("retrieval_calls", 0),
         "retry_count": int(state.get("retry_count") or 0),
+        "human_retry_count": int(state.get("human_retry_count") or 0),
+        "human_feedback": state.get("human_feedback") or "",
         "query_mode": telemetry.get("query_mode"),
         "embedder_name": telemetry.get("embedder_name"),
         "retrieve_query": telemetry.get("retrieve_query"),
@@ -167,6 +227,7 @@ def run_workflow(
     issue: str,
     repo_path: str,
     test_command: str,
+    lint_command: str = "ruff check app",
     model: str = "deepseek-v4-flash",
     max_steps: int = MAX_AGENT_STEPS,
     graph=None,
@@ -175,6 +236,7 @@ def run_workflow(
     embedder_name: str = "hashing",
     query_mode: str = "issue",
     progress: ProgressReporter | None = None,
+    feedback_provider=None,
 ) -> dict[str, Any]:
     """Invoke the compiled graph and return evaluator-compatible result keys.
 
@@ -193,16 +255,18 @@ def run_workflow(
                 "model": model,
                 "repo_path": repo_path,
                 "test_command": test_command,
+                "lint_command": lint_command,
                 "max_steps": max_steps,
                 "sandbox": sandbox,
                 "enable_search_code": enable_search_code,
                 "embedder_name": embedder_name,
                 "query_mode": query_mode,
                 "progress": progress,
+                "feedback_provider": feedback_provider,
             }
         },
     )
     result = adapt_result(final_state)
-    # Wall-clock for the full V1 workflow (analyze/plan/execute/verify/diagnose).
+    # Wall-clock for the full V1 workflow (analyze/plan/execute/verify/evaluate/diagnose).
     result["latency"] = time.perf_counter() - started_at
     return result

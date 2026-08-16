@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from langchain_core.runnables import RunnableConfig
@@ -10,7 +11,7 @@ from agent.state import AgentState, PlanValidationError, parse_structured_plan
 from agent.tools._sandbox import resolve_in_repo
 from agent.tools.filesystem import list_files
 from harness.limits import AGENT_TEMPERATURE
-from harness.progress import summarize_files
+from harness.progress import format_plan_detail
 
 from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage
 
@@ -32,6 +33,8 @@ Rules:
 - steps must be 3 to 5 concise checklist items for the executor
 - do not instruct modifying tests
 - do not call tools
+- on retry, hypothesis MUST differ from the failed plan and should follow the diagnosis
+- if human feedback is present, follow it; do not ignore it in favor of the previous plan
 """.strip()
 
 _INVENTORY_DIRS = (".", "app", "tests")
@@ -76,6 +79,28 @@ def _filter_existing_files(repo_path: str, paths: list[str]) -> list[str]:
     return kept
 
 
+def _is_replan(state: AgentState) -> bool:
+    return int(state.get("retry_count") or 0) > 0 or bool(
+        state.get("structured_diagnosis")
+    )
+
+
+def _replan_block(state: AgentState) -> str:
+    diagnosis = state.get("structured_diagnosis") or {}
+    history = state.get("attempt_history") or []
+    previous = state.get("plan") or {}
+    parts = [
+        "This is a retry. Do not repeat the failed hypothesis.\n"
+        f"Previous plan:\n{json.dumps(previous, ensure_ascii=False, indent=2)}\n\n"
+        f"Structured diagnosis:\n{json.dumps(diagnosis, ensure_ascii=False, indent=2)}\n\n"
+        f"Attempt history:\n{json.dumps(history, ensure_ascii=False, indent=2)}\n"
+    ]
+    feedback = (state.get("human_feedback") or "").strip()
+    if feedback:
+        parts.append(f"Human feedback (follow this):\n{feedback}\n")
+    return "\n".join(parts)
+
+
 def _planner_grounding(state: AgentState, repo_path: str) -> tuple[str, str]:
     """V2 uses retrieved snippets; V1 falls back to a directory inventory."""
     snippets = (state.get("retrieved_context") or "").strip()
@@ -94,20 +119,22 @@ def structured_plan(state: AgentState, config: RunnableConfig) -> dict:
     repo_path = str(cfg["repo_path"])
     analysis = state.get("analysis") or ""
     heading, grounding = _planner_grounding(state, repo_path)
+    replan = _is_replan(state)
+    previous_hypothesis = str((state.get("plan") or {}).get("hypothesis") or "")
+    user_parts = [
+        f"Issue:\n{state['issue']}\n",
+        f"Analysis:\n{analysis}\n",
+        f"{heading}:\n{grounding}\n",
+    ]
+    if replan:
+        user_parts.append(_replan_block(state))
+    user_parts.append("Produce the structured plan JSON now.")
 
     response = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": PLAN_SYSTEM},
-            {
-                "role": "user",
-                "content": (
-                    f"Issue:\n{state['issue']}\n\n"
-                    f"Analysis:\n{analysis}\n\n"
-                    f"{heading}:\n{grounding}\n\n"
-                    "Produce the structured plan JSON now."
-                ),
-            },
+            {"role": "user", "content": "\n".join(user_parts)},
         ],
         temperature=AGENT_TEMPERATURE,
     )
@@ -120,11 +147,22 @@ def structured_plan(state: AgentState, config: RunnableConfig) -> dict:
         repo_path,
         plan_data.get("files_to_inspect") or [],
     )
+    new_hypothesis = str(
+        (state.get("structured_diagnosis") or {}).get("new_hypothesis") or ""
+    )
+    human_feedback = (state.get("human_feedback") or "").strip()
+    if (
+        replan
+        and not human_feedback
+        and previous_hypothesis
+        and plan_data.get("hypothesis") == previous_hypothesis
+        and new_hypothesis
+        and new_hypothesis != previous_hypothesis
+    ):
+        plan_data["hypothesis"] = new_hypothesis
 
     reporter = get_reporter(config)
-    files = summarize_files(plan_data.get("files_to_inspect") or [])
-    n_steps = len(plan_data.get("steps") or [])
-    reporter.stage("plan", f"files={files}  steps={n_steps}")
+    reporter.stage("plan", format_plan_detail(plan_data, retry=replan))
 
     return {
         "plan": plan_data,

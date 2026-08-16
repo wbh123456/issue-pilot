@@ -98,9 +98,13 @@ class TestLifecycle:
         assert "--network" in args and args[args.index("--network") + 1] == "none"
         assert "--read-only" in args
         assert "GIT_OPTIONAL_LOCKS=0" in args
-        assert "GIT_CONFIG_COUNT=1" in args
+        assert "GIT_CONFIG_COUNT=3" in args
         assert "GIT_CONFIG_KEY_0=safe.directory" in args
         assert "GIT_CONFIG_VALUE_0=*" in args
+        assert "GIT_CONFIG_KEY_1=core.autocrlf" in args
+        assert "GIT_CONFIG_VALUE_1=true" in args
+        assert "GIT_CONFIG_KEY_2=core.filemode" in args
+        assert "GIT_CONFIG_VALUE_2=false" in args
         assert "--cap-drop" in args and args[args.index("--cap-drop") + 1] == "ALL"
         assert "--security-opt" in args
         assert "no-new-privileges" in args

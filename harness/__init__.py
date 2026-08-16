@@ -9,6 +9,7 @@ from .context import (
 from .limits import (
     COMMAND_TIMEOUT,
     MAX_AGENT_STEPS,
+    MAX_HUMAN_RETRY,
     MAX_RETRY,
     MAX_TOOL_OUTPUT,
     truncate_output,
@@ -19,6 +20,7 @@ __all__ = [
     "COMMAND_TIMEOUT",
     "MAX_AGENT_STEPS",
     "MAX_CHUNK_CHARS",
+    "MAX_HUMAN_RETRY",
     "MAX_PLANNER_CONTEXT_CHARS",
     "MAX_RETRY",
     "MAX_TOOL_OUTPUT",

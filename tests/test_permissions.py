@@ -7,6 +7,7 @@ import pytest
 from harness.limits import (
     COMMAND_TIMEOUT,
     MAX_AGENT_STEPS,
+    MAX_HUMAN_RETRY,
     MAX_RETRY,
     MAX_TOOL_OUTPUT,
 )
@@ -21,6 +22,7 @@ class TestLimits:
     def test_central_defaults(self) -> None:
         assert MAX_AGENT_STEPS == 15
         assert MAX_RETRY == 2
+        assert MAX_HUMAN_RETRY == 1
         assert MAX_TOOL_OUTPUT == 10_000
         assert COMMAND_TIMEOUT == 60
 
@@ -45,6 +47,18 @@ class TestAllowedCommands:
 
     def test_ruff_and_mypy(self) -> None:
         assert validate_command("ruff check app")[0] == "ruff"
+        assert validate_command(
+            "ruff check --fix app --ignore EXE001 --ignore EXE002"
+        ) == [
+            "ruff",
+            "check",
+            "--fix",
+            "app",
+            "--ignore",
+            "EXE001",
+            "--ignore",
+            "EXE002",
+        ]
         assert validate_command("mypy app")[0] == "mypy"
 
     def test_git_diff_head(self) -> None:

@@ -8,6 +8,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/auth.py"],
     "test_command": "pytest tests/test_auth_expired.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_001.py",
     "gold_test": "test_expired_token_returns_401"
   },
@@ -20,6 +21,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/calculator.py"],
     "test_command": "pytest tests/test_calculator.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_002.py",
     "gold_test": "test_sum_inclusive_basic"
   },
@@ -32,6 +34,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/validators.py"],
     "test_command": "pytest tests/test_validators.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_003.py",
     "gold_test": "test_empty_email_rejected"
   },
@@ -44,6 +47,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/users.py"],
     "test_command": "pytest tests/test_users_missing.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_004.py",
     "gold_test": "test_missing_user_returns_404"
   },
@@ -56,6 +60,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/orders.py"],
     "test_command": "pytest tests/test_orders_total.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_005.py",
     "gold_test": "test_calculate_total_respects_quantity"
   },
@@ -68,6 +73,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/auth.py"],
     "test_command": "pytest tests/test_auth_claims.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_006.py",
     "gold_test": "test_token_without_user_id_returns_401"
   },
@@ -80,6 +86,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/users.py", "app/auth.py"],
     "test_command": "pytest tests/test_users_promote.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_007.py",
     "gold_test": "test_admin_token_carries_role_claim"
   },
@@ -92,6 +99,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/orders.py"],
     "test_command": "pytest tests/test_orders_idempotency.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_008.py",
     "gold_test": "test_idempotency_is_scoped_to_user"
   },
@@ -104,6 +112,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/inventory.py", "app/orders.py"],
     "test_command": "pytest tests/test_inventory_orders.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_009.py",
     "gold_test": "test_out_of_stock_returns_409_and_does_not_decrement"
   },
@@ -116,6 +125,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/auth.py", "app/users.py"],
     "test_command": "pytest tests/test_users_stale_role.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_010.py",
     "gold_test": "test_promote_takes_effect_without_relogin"
   },
@@ -128,6 +138,7 @@
     "repo_path": "../issue-pilot-benchmark",
     "expected_files": ["app/orders.py", "app/pricing.py", "app/payments.py"],
     "test_command": "pytest tests/test_orders_coupon_refund.py -q",
+    "lint_command": "ruff check app",
     "gold_file": "test_issue_011.py",
     "gold_test": "test_coupon_applied_once_and_refund_restores_stock"
   }

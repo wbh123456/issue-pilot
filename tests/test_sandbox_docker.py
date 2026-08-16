@@ -32,6 +32,36 @@ def _container_exists(name: str) -> bool:
     return proc.returncode == 0
 
 
+def _seed_git(workspace: Path) -> None:
+    git = find_host_git()
+    if git is None:
+        pytest.skip("host git is required to seed the workspace")
+    for args in (
+        ["init"],
+        ["config", "user.email", "test@example.com"],
+        ["config", "user.name", "Test"],
+        ["add", "."],
+        ["commit", "-m", "init"],
+    ):
+        subprocess.run(
+            [git, "-C", str(workspace), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+
+def _verify_config(workspace: Path, sandbox: SandboxRunner) -> dict:
+    return {
+        "configurable": {
+            "repo_path": str(workspace),
+            "test_command": "pytest tests/test_ok.py -q",
+            "lint_command": "ruff check app --ignore EXE001 --ignore EXE002",
+            "sandbox": sandbox,
+        }
+    }
+
+
 @pytest.fixture
 def live_workspace(tmp_path: Path) -> Path:
     tests = tmp_path / "tests"
@@ -52,6 +82,13 @@ def live_workspace(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (tmp_path / "visible.txt").write_text("mounted-ok\n", encoding="utf-8")
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "hello.py").write_text(
+        "#!/usr/bin/env python3\n"
+        'def greet(name: str) -> str:\n    return f"hi {name}"\n',
+        encoding="utf-8",
+    )
     return tmp_path
 
 
@@ -131,39 +168,7 @@ class TestDockerSandbox:
     def test_git_diff_head_inside_container(
         self, docker_preflight, live_workspace: Path
     ) -> None:
-        git = find_host_git()
-        if git is None:
-            pytest.skip("host git is required to seed the workspace")
-        subprocess.run(
-            [git, "-C", str(live_workspace), "init"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            [git, "-C", str(live_workspace), "config", "user.email", "test@example.com"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            [git, "-C", str(live_workspace), "config", "user.name", "Test"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            [git, "-C", str(live_workspace), "add", "."],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            [git, "-C", str(live_workspace), "commit", "-m", "init"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        _seed_git(live_workspace)
         (live_workspace / "visible.txt").write_text("changed\n", encoding="utf-8")
 
         from agent.tools.git import git_diff
@@ -176,3 +181,128 @@ class TestDockerSandbox:
         assert status.exit_code == 0, status.stderr or status.stdout
         assert not out.startswith("Error:")
         assert "visible.txt" in out
+
+    def test_layer1_pass_runs_pytest_ruff_and_git(
+        self, docker_preflight, live_workspace: Path
+    ) -> None:
+        _seed_git(live_workspace)
+        (live_workspace / "app" / "hello.py").write_text(
+            "#!/usr/bin/env python3\n"
+            'def greet(name: str) -> str:\n    return f"hey {name}"\n',
+            encoding="utf-8",
+        )
+        from agent.nodes.verify import deterministic_verify
+        from agent.state import initial_state
+
+        with SandboxRunner(live_workspace, task_id="itest-l1-pass") as sb:
+            before = sb.meta.command_count
+            orig = sb.run
+            argv_log: list[list[str]] = []
+
+            def tracking(command):
+                result = orig(command)
+                argv_log.append(list(result.command))
+                return result
+
+            sb.run = tracking  # type: ignore[method-assign]
+            out = deterministic_verify(
+                initial_state("bug"),
+                _verify_config(live_workspace, sb),
+            )
+            after = sb.meta.command_count
+
+        result = out["test_result"]
+        assert after - before >= 4
+        assert any(argv and argv[0] == "pytest" for argv in argv_log)
+        assert any(argv and argv[0] == "ruff" for argv in argv_log)
+        assert any(argv[:2] == ["git", "diff"] for argv in argv_log)
+        assert any(argv[:2] == ["git", "status"] for argv in argv_log)
+        assert result["pytest_passed"] is True, result["output"]
+        assert result["ruff_passed"] is True, result["ruff_output"]
+        assert result["patch_valid"] is True
+        assert result["deterministic_pass"] is True
+
+    def test_layer1_clean_tree_fails_patch_gate(
+        self, docker_preflight, live_workspace: Path
+    ) -> None:
+        _seed_git(live_workspace)
+        from agent.nodes.verify import deterministic_verify
+        from agent.state import initial_state
+
+        with SandboxRunner(live_workspace, task_id="itest-l1-clean") as sb:
+            status = sb.run(["git", "status", "--short"])
+            if (status.stdout or "").strip():
+                pytest.skip(
+                    "sandbox mount dirtied the worktree after commit "
+                    f"({status.stdout!r})"
+                )
+            out = deterministic_verify(
+                initial_state("bug"),
+                _verify_config(live_workspace, sb),
+            )
+
+        result = out["test_result"]
+        assert result["pytest_passed"] is True, result["output"]
+        assert result["ruff_passed"] is True, result["ruff_output"]
+        assert result["patch_valid"] is False
+        assert result["deterministic_pass"] is False
+        assert result["git_diff"] == "(no changes)"
+
+    def test_crlf_only_worktree_is_not_a_patch(
+        self, docker_preflight, tmp_path: Path
+    ) -> None:
+        git = find_host_git()
+        if git is None:
+            pytest.skip("host git is required to seed the workspace")
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        app = tmp_path / "app"
+        app.mkdir()
+        (tmp_path / "visible.txt").write_bytes(b"mounted-ok\n")
+        (tests / "test_ok.py").write_bytes(
+            b"from pathlib import Path\n"
+            b"\n"
+            b"def test_ok():\n"
+            b"    assert Path('/workspace/visible.txt').read_text() == 'mounted-ok\\n'\n"
+        )
+        hello = (
+            b"#!/usr/bin/env python3\n"
+            b"def greet(name: str) -> str:\n"
+            b'    return f"hi {name}"\n'
+        )
+        (app / "hello.py").write_bytes(hello.replace(b"\n", b"\r\n"))
+        for args in (
+            ["init"],
+            ["config", "user.email", "test@example.com"],
+            ["config", "user.name", "Test"],
+            ["config", "core.autocrlf", "true"],
+            ["config", "core.filemode", "false"],
+            ["add", "."],
+            ["commit", "-m", "init"],
+        ):
+            subprocess.run(
+                [git, "-C", str(tmp_path), *args],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        from agent.nodes.verify import deterministic_verify
+        from agent.state import initial_state
+
+        with SandboxRunner(tmp_path, task_id="itest-crlf") as sb:
+            status = sb.run(["git", "status", "--short"])
+            assert (status.stdout or "").strip() == "", status.stdout
+            out = deterministic_verify(
+                initial_state("bug"),
+                _verify_config(tmp_path, sb),
+            )
+
+        result = out["test_result"]
+        assert result["pytest_passed"] is True, result["output"]
+        assert result["ruff_passed"] is True, result["ruff_output"]
+        assert result["changed_files"] == []
+        assert result["untracked_files"] == []
+        assert result["patch_valid"] is False
+        assert result["deterministic_pass"] is False
+        assert result["git_diff"] == "(no changes)"
