@@ -15,6 +15,9 @@ MAX_HUMAN_RETRY = 1
 MAX_TOOL_OUTPUT = 10_000
 COMMAND_TIMEOUT = 60
 AGENT_TEMPERATURE = 0
+# LangGraph's default is 25. V2 + two diagnose loops + feedback + approval
+# is ~20 node visits; 40 leaves headroom without changing routing.
+GRAPH_RECURSION_LIMIT = 40
 
 
 def truncate_output(text: str, limit: int = MAX_TOOL_OUTPUT) -> str:

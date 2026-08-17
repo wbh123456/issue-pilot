@@ -9,6 +9,7 @@ from eval.report import (
     build_report,
     is_retrieve_record,
     is_solve_record,
+    load_run_files,
     summarize_solve_cohort,
 )
 
@@ -201,3 +202,24 @@ class TestBuildReport:
         )
         report = build_report(runs_dir=tmp_path)
         assert report["solve_cohorts"][0]["n"] == 1
+
+    def test_ignores_session_sidecars_in_subdirectory(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "ok.json",
+            _solve(task_id="issue-009", harness="v1", success=True),
+        )
+        sessions = tmp_path / "sessions"
+        sessions.mkdir()
+        (sessions / "issue-009-v1-paused.json").write_text(
+            json.dumps(
+                _solve(task_id="issue-009", harness="v1", success=False),
+            ),
+            encoding="utf-8",
+        )
+        records = load_run_files(tmp_path)
+        assert len(records) == 1
+        assert records[0]["success"] is True
+        report = build_report(runs_dir=tmp_path)
+        assert report["solve_cohorts"][0]["n"] == 1
+        assert report["solve_cohorts"][0]["harnesses"][0]["resolve_rate"] == 1.0

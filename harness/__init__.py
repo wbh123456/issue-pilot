@@ -8,6 +8,7 @@ from .context import (
 )
 from .limits import (
     COMMAND_TIMEOUT,
+    GRAPH_RECURSION_LIMIT,
     MAX_AGENT_STEPS,
     MAX_HUMAN_RETRY,
     MAX_RETRY,
@@ -18,6 +19,7 @@ from .permissions import CommandPermissionError, parse_command, validate_command
 
 __all__ = [
     "COMMAND_TIMEOUT",
+    "GRAPH_RECURSION_LIMIT",
     "MAX_AGENT_STEPS",
     "MAX_CHUNK_CHARS",
     "MAX_HUMAN_RETRY",

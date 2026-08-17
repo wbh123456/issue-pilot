@@ -24,7 +24,7 @@ from agent.state import (
     initial_state,
     patch_evaluation_passed,
 )
-from harness.limits import MAX_AGENT_STEPS, MAX_RETRY
+from harness.limits import GRAPH_RECURSION_LIMIT, MAX_AGENT_STEPS, MAX_RETRY
 from harness.progress import ProgressReporter
 
 
@@ -81,13 +81,17 @@ def route_after_feedback(state: AgentState) -> Literal["plan", "mark_needs_human
     return "mark_needs_human"
 
 
-def build_graph(*, include_retrieve: bool = False):
+def build_graph(*, include_retrieve: bool = False, checkpointer=None):
     """Build analyze → [retrieve] → plan → execute → verify → evaluate | diagnose.
 
     Default (``include_retrieve=False``) is the V1 graph. V2 inserts a
     deterministic retrieve node between analyze and plan. After the automatic
     retry budget, ``feedback`` may allow one same-process replan; otherwise
     the graph ends at ``mark_needs_human``.
+
+    Pass ``checkpointer`` for durable node snapshots. ``get_graph()`` /
+    ``get_v2_graph()`` still compile without one so existing callers stay
+    in-memory.
     """
     graph = StateGraph(AgentState)
     graph.add_node("analyze", analyze_issue)
@@ -145,7 +149,7 @@ def build_graph(*, include_retrieve: bool = False):
         },
     )
     graph.add_edge("mark_needs_human", END)
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
 _GRAPH = None
@@ -221,6 +225,50 @@ def adapt_result(state: AgentState) -> dict[str, Any]:
     }
 
 
+def build_runtime_config(
+    *,
+    client,
+    repo_path: str,
+    test_command: str,
+    lint_command: str = "ruff check app",
+    model: str = "deepseek-v4-flash",
+    max_steps: int = MAX_AGENT_STEPS,
+    sandbox=None,
+    enable_search_code: bool = False,
+    embedder_name: str = "hashing",
+    query_mode: str = "issue",
+    progress: ProgressReporter | None = None,
+    feedback_provider=None,
+    thread_id: str | None = None,
+    recursion_limit: int = GRAPH_RECURSION_LIMIT,
+) -> dict[str, Any]:
+    """Shared invoke config so solve and resume cannot drift.
+
+    Runtime objects stay in ``configurable``. ``thread_id`` is required by
+    LangGraph when the compiled graph has a checkpointer.
+    """
+    configurable: dict[str, Any] = {
+        "client": client,
+        "model": model,
+        "repo_path": repo_path,
+        "test_command": test_command,
+        "lint_command": lint_command,
+        "max_steps": max_steps,
+        "sandbox": sandbox,
+        "enable_search_code": enable_search_code,
+        "embedder_name": embedder_name,
+        "query_mode": query_mode,
+        "progress": progress,
+        "feedback_provider": feedback_provider,
+    }
+    if thread_id:
+        configurable["thread_id"] = thread_id
+    return {
+        "recursion_limit": recursion_limit,
+        "configurable": configurable,
+    }
+
+
 def run_workflow(
     *,
     client,
@@ -237,34 +285,40 @@ def run_workflow(
     query_mode: str = "issue",
     progress: ProgressReporter | None = None,
     feedback_provider=None,
+    thread_id: str | None = None,
+    recursion_limit: int = GRAPH_RECURSION_LIMIT,
 ) -> dict[str, Any]:
     """Invoke the compiled graph and return evaluator-compatible result keys.
 
     Defaults to the V1 singleton. Pass ``graph=get_v2_graph()`` and
     ``enable_search_code=True`` for V2.
     Runtime objects (LLM client, SandboxRunner) stay in ``configurable``,
-    not in serializable ``AgentState``.
+    not in serializable ``AgentState``. Checkpointed graphs need ``thread_id``.
     """
     compiled = graph or get_graph()
+    if compiled.checkpointer is not None and not thread_id:
+        raise ValueError(
+            "thread_id is required when invoking a checkpointed graph"
+        )
     started_at = time.perf_counter()
     final_state = compiled.invoke(
         initial_state(issue),
-        config={
-            "configurable": {
-                "client": client,
-                "model": model,
-                "repo_path": repo_path,
-                "test_command": test_command,
-                "lint_command": lint_command,
-                "max_steps": max_steps,
-                "sandbox": sandbox,
-                "enable_search_code": enable_search_code,
-                "embedder_name": embedder_name,
-                "query_mode": query_mode,
-                "progress": progress,
-                "feedback_provider": feedback_provider,
-            }
-        },
+        config=build_runtime_config(
+            client=client,
+            repo_path=repo_path,
+            test_command=test_command,
+            lint_command=lint_command,
+            model=model,
+            max_steps=max_steps,
+            sandbox=sandbox,
+            enable_search_code=enable_search_code,
+            embedder_name=embedder_name,
+            query_mode=query_mode,
+            progress=progress,
+            feedback_provider=feedback_provider,
+            thread_id=thread_id,
+            recursion_limit=recursion_limit,
+        ),
     )
     result = adapt_result(final_state)
     # Wall-clock for the full V1 workflow (analyze/plan/execute/verify/evaluate/diagnose).
