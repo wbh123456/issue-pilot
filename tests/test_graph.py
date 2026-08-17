@@ -11,6 +11,7 @@ import pytest
 from agent.graph import (
     adapt_result,
     build_graph,
+    route_after_approval,
     route_after_diagnose,
     route_after_evaluate,
     route_after_feedback,
@@ -180,6 +181,7 @@ def _config(client: FakeClient, **extra: Any) -> dict:
 PASS_PATCH = WorktreeDiff(
     status=" M app/auth.py",
     diff="diff --git a/app/auth.py b/app/auth.py\n+fixed\n",
+    changed_files=["app/auth.py"],
 )
 EMPTY_PATCH = WorktreeDiff()
 
@@ -413,7 +415,7 @@ class TestRouting:
                     "patch_evaluation": VALID_EVALUATION,
                 }
             )
-            == "mark_success"
+            == "await_approval"
         )
         assert (
             route_after_evaluate(
@@ -424,6 +426,14 @@ class TestRouting:
             )
             == "diagnose"
         )
+
+    def test_approval_gate_routes(self) -> None:
+        assert route_after_approval({}) == "mark_success"
+        assert route_after_approval({"approval_decision": "approve"}) == "mark_success"
+        assert (
+            route_after_approval({"approval_decision": "reject"}) == "mark_needs_human"
+        )
+        assert route_after_approval({"approval_decision": "feedback"}) == "diagnose"
 
     def test_pytest_exit_code_alone_does_not_pass(self) -> None:
         assert (

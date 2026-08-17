@@ -188,8 +188,13 @@ class TestGraphTopology:
         assert ("feedback", "plan") in edges
         assert ("feedback", "mark_needs_human") in edges
         assert "evaluate" in nodes
+        assert "await_approval" in nodes
         assert ("verify", "evaluate") in edges
-        assert ("evaluate", "mark_success") in edges
+        assert ("evaluate", "await_approval") in edges
+        assert ("evaluate", "mark_success") not in edges
+        assert ("await_approval", "mark_success") in edges
+        assert ("await_approval", "mark_needs_human") in edges
+        assert ("await_approval", "diagnose") in edges
         assert ("evaluate", "diagnose") in edges
         assert ("verify", "mark_success") not in edges
 
@@ -210,8 +215,13 @@ class TestGraphTopology:
         assert ("feedback", "plan") in edges
         assert ("feedback", "mark_needs_human") in edges
         assert "evaluate" in nodes
+        assert "await_approval" in nodes
         assert ("verify", "evaluate") in edges
-        assert ("evaluate", "mark_success") in edges
+        assert ("evaluate", "await_approval") in edges
+        assert ("evaluate", "mark_success") not in edges
+        assert ("await_approval", "mark_success") in edges
+        assert ("await_approval", "mark_needs_human") in edges
+        assert ("await_approval", "diagnose") in edges
         assert ("verify", "mark_success") not in edges
 
     def test_singletons_are_distinct(self) -> None:

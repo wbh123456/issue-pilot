@@ -134,6 +134,8 @@ class AgentState(TypedDict):
     patch_evaluation: NotRequired[dict[str, Any]]
     human_retry_count: NotRequired[int]
     human_feedback: NotRequired[str]
+    approval_decision: NotRequired[str]
+    approval_history: NotRequired[list[dict[str, Any]]]
 
     # --- optional (commented out to keep Phase 2 state minimal) ---
     # Can be derived from verify git_diff:
@@ -316,4 +318,6 @@ def initial_state(issue: str) -> AgentState:
         "patch_evaluation": {},
         "human_retry_count": 0,
         "human_feedback": "",
+        "approval_decision": "",
+        "approval_history": [],
     }

@@ -130,6 +130,15 @@ class TestDiagnoseContract:
         assert user.index("Changed files:") < user.index("Git diff")
         assert "Prior attempts" in user
 
+    def test_prompt_includes_reviewer_feedback(self) -> None:
+        client = FakeClient([_Response(json.dumps(VALID_DIAGNOSIS))])
+        state = _failed_state()
+        state["human_feedback"] = "Drop the unrelated auth.py edit"
+        diagnose_failure(state, _config(client))
+        user = client.calls[0]["messages"][1]["content"]
+        assert "Reviewer feedback" in user
+        assert "Drop the unrelated auth.py edit" in user
+
     def test_includes_prior_history_and_layer2(self) -> None:
         client = FakeClient([_Response(json.dumps(VALID_DIAGNOSIS))])
         state = _failed_state()

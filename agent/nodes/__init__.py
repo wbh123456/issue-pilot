@@ -1,6 +1,7 @@
 """LangGraph node functions for the V1 Plan-Execute workflow."""
 
 from .analyze import analyze_issue
+from .approve import await_approval
 from .diagnose import diagnose_failure
 from .evaluate import evaluate_patch
 from .execute import execute_plan
@@ -16,6 +17,7 @@ __all__ = [
     "execute_plan",
     "deterministic_verify",
     "evaluate_patch",
+    "await_approval",
     "diagnose_failure",
     "collect_feedback",
 ]

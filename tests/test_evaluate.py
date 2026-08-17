@@ -184,7 +184,7 @@ class TestEvaluateRouting:
         )
         assert route_after_verify({}) == "diagnose"
 
-    def test_evaluate_pass_goes_to_success(self) -> None:
+    def test_evaluate_pass_goes_to_approval_gate(self) -> None:
         assert (
             route_after_evaluate(
                 {
@@ -192,7 +192,7 @@ class TestEvaluateRouting:
                     "patch_evaluation": VALID_EVALUATION,
                 }
             )
-            == "mark_success"
+            == "await_approval"
         )
 
     def test_evaluate_reject_goes_to_diagnose(self) -> None:

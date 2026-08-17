@@ -117,6 +117,7 @@ class TestRuntimeConfig:
         assert configurable["enable_search_code"] is False
         assert configurable["embedder_name"] == "hashing"
         assert configurable["query_mode"] == "issue"
+        assert configurable["require_approval"] is False
         assert "thread_id" not in configurable
 
     def test_thread_id_only_when_set(self) -> None:
@@ -197,6 +198,7 @@ class TestDurableCheckpointer:
                 "execute",
                 "verify",
                 "evaluate",
+                "await_approval",
                 "mark_success",
             ]
 

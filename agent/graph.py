@@ -10,6 +10,7 @@ from langgraph.graph import END, START, StateGraph
 
 from agent.nodes import (
     analyze_issue,
+    await_approval,
     collect_feedback,
     diagnose_failure,
     deterministic_verify,
@@ -18,6 +19,7 @@ from agent.nodes import (
     structured_plan,
 )
 from agent.nodes._runtime import get_reporter
+from agent.nodes.approve import ApprovalError, interrupt_payload
 from agent.state import (
     AgentState,
     EvaluationValidationError,
@@ -57,14 +59,26 @@ def route_after_verify(state: AgentState) -> Literal["evaluate", "diagnose"]:
     return "diagnose"
 
 
-def route_after_evaluate(state: AgentState) -> Literal["mark_success", "diagnose"]:
-    """Mechanical Layer 2 pass only; never promote a Layer 1 failure."""
+def route_after_evaluate(state: AgentState) -> Literal["await_approval", "diagnose"]:
+    """Mechanical Layer 2 pass goes to the approval gate; never promote a Layer 1 failure."""
     test_result = state.get("test_result") or {}
     if test_result.get("deterministic_pass") is not True:
         return "diagnose"
     if _layer2_passed(state.get("patch_evaluation") or {}):
-        return "mark_success"
+        return "await_approval"
     return "diagnose"
+
+
+def route_after_approval(
+    state: AgentState,
+) -> Literal["mark_success", "mark_needs_human", "diagnose"]:
+    """Missing/approve → success; reject escalates; feedback re-enters diagnose."""
+    decision = state.get("approval_decision") or "approve"
+    if decision == "reject":
+        return "mark_needs_human"
+    if decision == "feedback":
+        return "diagnose"
+    return "mark_success"
 
 
 def route_after_diagnose(state: AgentState) -> Literal["plan", "feedback"]:
@@ -87,7 +101,8 @@ def build_graph(*, include_retrieve: bool = False, checkpointer=None):
     Default (``include_retrieve=False``) is the V1 graph. V2 inserts a
     deterministic retrieve node between analyze and plan. After the automatic
     retry budget, ``feedback`` may allow one same-process replan; otherwise
-    the graph ends at ``mark_needs_human``.
+    the graph ends at ``mark_needs_human``. Layer 2 pass always visits
+    ``await_approval``, which is a no-op unless ``require_approval`` is set.
 
     Pass ``checkpointer`` for durable node snapshots. ``get_graph()`` /
     ``get_v2_graph()`` still compile without one so existing callers stay
@@ -99,6 +114,7 @@ def build_graph(*, include_retrieve: bool = False, checkpointer=None):
     graph.add_node("execute", execute_plan)
     graph.add_node("verify", deterministic_verify)
     graph.add_node("evaluate", evaluate_patch)
+    graph.add_node("await_approval", await_approval)
     graph.add_node("diagnose", diagnose_failure)
     graph.add_node("feedback", collect_feedback)
     graph.add_node("mark_success", mark_success)
@@ -127,7 +143,16 @@ def build_graph(*, include_retrieve: bool = False, checkpointer=None):
         "evaluate",
         route_after_evaluate,
         {
+            "await_approval": "await_approval",
+            "diagnose": "diagnose",
+        },
+    )
+    graph.add_conditional_edges(
+        "await_approval",
+        route_after_approval,
+        {
             "mark_success": "mark_success",
+            "mark_needs_human": "mark_needs_human",
             "diagnose": "diagnose",
         },
     )
@@ -219,6 +244,8 @@ def adapt_result(state: AgentState) -> dict[str, Any]:
         "retry_count": int(state.get("retry_count") or 0),
         "human_retry_count": int(state.get("human_retry_count") or 0),
         "human_feedback": state.get("human_feedback") or "",
+        "approval_decision": state.get("approval_decision") or "",
+        "approval_history": list(state.get("approval_history") or []),
         "query_mode": telemetry.get("query_mode"),
         "embedder_name": telemetry.get("embedder_name"),
         "retrieve_query": telemetry.get("retrieve_query"),
@@ -241,6 +268,7 @@ def build_runtime_config(
     feedback_provider=None,
     thread_id: str | None = None,
     recursion_limit: int = GRAPH_RECURSION_LIMIT,
+    require_approval: bool = False,
 ) -> dict[str, Any]:
     """Shared invoke config so solve and resume cannot drift.
 
@@ -260,6 +288,7 @@ def build_runtime_config(
         "query_mode": query_mode,
         "progress": progress,
         "feedback_provider": feedback_provider,
+        "require_approval": require_approval,
     }
     if thread_id:
         configurable["thread_id"] = thread_id
@@ -287,6 +316,7 @@ def run_workflow(
     feedback_provider=None,
     thread_id: str | None = None,
     recursion_limit: int = GRAPH_RECURSION_LIMIT,
+    require_approval: bool = False,
 ) -> dict[str, Any]:
     """Invoke the compiled graph and return evaluator-compatible result keys.
 
@@ -294,8 +324,13 @@ def run_workflow(
     ``enable_search_code=True`` for V2.
     Runtime objects (LLM client, SandboxRunner) stay in ``configurable``,
     not in serializable ``AgentState``. Checkpointed graphs need ``thread_id``.
+    ``require_approval`` interrupts after Layer 2 pass and needs a checkpointer.
     """
     compiled = graph or get_graph()
+    if require_approval and compiled.checkpointer is None:
+        raise ApprovalError(
+            "require_approval needs a checkpointer; interrupt() cannot resume without one"
+        )
     if compiled.checkpointer is not None and not thread_id:
         raise ValueError(
             "thread_id is required when invoking a checkpointed graph"
@@ -318,8 +353,23 @@ def run_workflow(
             feedback_provider=feedback_provider,
             thread_id=thread_id,
             recursion_limit=recursion_limit,
+            require_approval=require_approval,
         ),
     )
+    payload = interrupt_payload(final_state)
+    if payload is not None:
+        clean = {
+            key: value
+            for key, value in final_state.items()
+            if key != "__interrupt__"
+        }
+        result = adapt_result(clean)
+        result["status"] = "waiting_approval"
+        result["termination"] = "waiting_approval"
+        result["workflow_passed"] = False
+        result["approval_payload"] = payload
+        result["latency"] = time.perf_counter() - started_at
+        return result
     result = adapt_result(final_state)
     # Wall-clock for the full V1 workflow (analyze/plan/execute/verify/evaluate/diagnose).
     result["latency"] = time.perf_counter() - started_at

@@ -103,8 +103,13 @@ def diagnose_failure(state: AgentState, config: RunnableConfig) -> dict:
     evaluator_pass = _evaluator_pass(layer2)
     failure_source = _failure_source(test_result, evaluator_pass)
 
+    reviewer = (state.get("human_feedback") or "").strip()
+    reviewer_block = (
+        f"Reviewer feedback:\n{_clip(reviewer)}\n\n" if reviewer else ""
+    )
     user_content = (
         f"Issue:\n{state['issue']}\n\n"
+        f"{reviewer_block}"
         f"Current plan:\n{_clip(json.dumps(plan, ensure_ascii=False, indent=2))}\n\n"
         f"Layer 1 result:\n{_clip(json.dumps(_layer1_payload(test_result), ensure_ascii=False, indent=2))}\n\n"
         f"{format_file_lists(test_result.get('changed_files'), test_result.get('untracked_files'))}\n\n"
