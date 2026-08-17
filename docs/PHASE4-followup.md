@@ -7,6 +7,8 @@ Benchmark (sibling repo): `issue-pilot-benchmark`
 
 Post-Phase 4 hygiene. This is **not** planned Phase 5 (Reliability + HITL). It wires Day 5 Tasks 1–2 (diagnose → retry) plus eval/RAG fixes. It is **not** HITL, checkpoint, MCP, reranker, or an LLM evaluator.
 
+RAG topology (what hashing vs FastEmbed actually do, why `search_code` rebuilds an index): [`docs/PHASE4-architecture.md`](PHASE4-architecture.md).
+
 ## Goal
 
 1. Make live V2 retrieval comparable to offline `retrieve`

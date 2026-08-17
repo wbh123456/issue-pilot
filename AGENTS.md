@@ -4,7 +4,7 @@ This repo is the **coding-agent harness** (agent, tools, sandbox, eval). The bug
 
 ## Progress
 
-Shipped work is recorded in `docs/PHASE*.md` (currently `PHASE1.md`–`PHASE5.md` plus `PHASE3-enhance-tests.md` and `PHASE4-followup.md`). Read those before re-deriving status from code or chat. The week plan is `docs/project-plan.md`. Completed Phase 5 is Day 5 (retry / dual-layer eval / same-process feedback), not durable HITL. Checkpoint, approval HITL, and MCP remain Day 6.
+Shipped work is recorded in `docs/PHASE*.md` (currently `PHASE1.md`–`PHASE5.md` plus `PHASE3-enhance-tests.md`, `PHASE4-followup.md`, and `PHASE4-architecture.md`). Read those before re-deriving status from code or chat. The week plan is `docs/project-plan.md`. Completed Phase 5 is Day 5 (retry / dual-layer eval / same-process feedback), not durable HITL. Checkpoint, approval HITL, and MCP remain Day 6.
 
 ## Easy to get wrong
 

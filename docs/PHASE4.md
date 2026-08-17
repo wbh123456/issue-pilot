@@ -19,63 +19,21 @@ Add a **V2** harness that is V1 plus hybrid retrieval, without changing V0/V1 or
 
 Gold pass/fail is **not** the RAG result. The DoD is the Recall@5 table, especially **issue-009** (`app/inventory.py` + `app/orders.py`).
 
-## Current agentic workflow architecture
+## Architecture (this day’s snapshot)
+
+How the stack works (chunker, BM25 / dense / hybrid, embedders, planner grounding, index lifetime): [`docs/PHASE4-architecture.md`](PHASE4-architecture.md).
+
+Phase 4 V2 graph — `diagnose` still ended the run; `compare` stayed `("v0", "v1")`:
 
 ```text
-CLI  solve / compare / retrieve
-        │
-        ▼
-eval/runner.solve_task          or     eval/retrieval.run_retrieval_eval
-        │                                    │
-        ├─ reset_repo                        ├─ reset once per (repo, base_commit)
-        └─ SandboxRunner                     └─ index app/**/*.py; no LLM
-                │
-                ├─ V0  run_agent             ReAct, 6 tools
-                ├─ V1  run_workflow          analyze → plan → execute → verify
-                └─ V2  get_v2_graph()        analyze → retrieve → plan → execute → verify
-                                             + search_code during execute
-        ▼
-runs/{task}-{v0|v1|v2|retrieve}-{stamp}.json
+V0  ReAct loop, 6 tools (unchanged)
+V1  analyze → plan → execute → verify → pass END / fail diagnose END
+V2  analyze → retrieve → plan → execute → verify   (same verify fork)
+                  │                 └─ V2_TOOLS (6 + search_code)
+                  └─ hybrid, 0 LLM, HashingEmbedder default
 ```
 
-### V0 vs V1 vs V2 (control flow)
-
-```text
-V0 ReAct (unchanged)
-  for step in 1..MAX_AGENT_STEPS:
-      LLM(+6 tools) → execute_tool* → append result
-
-V1 LangGraph (unchanged)
-  START → analyze → plan → execute → verify
-                                      ├─ PASS → END
-                                      └─ FAIL → diagnose → END
-
-V2 = V1 + retrieve + search_code
-  START → analyze → retrieve → plan → execute → verify
-                         │                 │
-                         │                 └─ V2_TOOLS (6 + search_code)
-                         └─ hybrid, 0 LLM, HashingEmbedder default
-```
-
-`compare` still loops `("v0", "v1")` only.
-
-### Retrieval (host-side, same trust class as `grep_code`)
-
-Path-jailed, `app/**/*.py` only. Skips `_gold` / `_app_bak`. No `subprocess`. No FAISS/Chroma.
-
-| Piece | Location | Notes |
-|---|---|---|
-| Chunker | `retrieval/chunker.py` | AST `module` / `class` / `function` / `method` |
-| Lexical | `retrieval/lexical.py` | BM25Okapi (`rank-bm25`) |
-| Dense | `retrieval/dense.py` | numpy cosine; `HashingEmbedder` (tests + live V2) / `FastEmbedEmbedder` (eval CLI) |
-| Hybrid | `retrieval/hybrid.py` | RRF `k=60`, then top-K |
-| Index | `retrieval/indexer.py` | In-memory per worktree |
-| Limits | `harness/context.py` | `RETRIEVE_K=5`, `MAX_CHUNK_CHARS=4000`, `MAX_PLANNER_CONTEXT_CHARS=8000` |
-| Metric | `eval/metrics.py` | File-level `recall_at_k` after collapsing chunks |
-
-Query for the **eval CLI** = raw `dataset.issue`. Query for the **V2 retrieve node** = `issue + analysis`.
-
-`grep` in the ablation is **not** BM25: tokenize the issue, call existing `grep_code` per token, rank files by hit count.
+This write-up’s live retrieve query was `issue + analysis`. Follow-up defaulted live V2 to **issue-only** so it matches `cli.py retrieve`; see `docs/PHASE4-followup.md`.
 
 ## What we built
 
