@@ -13,6 +13,7 @@ from harness.progress import (
     format_note_line,
     format_plan_detail,
     format_recovery_summary,
+    format_review,
     format_size,
     format_stage_line,
     format_tool_line,
@@ -191,6 +192,52 @@ class TestFormatters:
             )
             == "attempts=1 Layer1=FAIL Layer2=FAIL human_retry=0"
         )
+
+    def test_format_review_has_six_panels(self) -> None:
+        rendered = format_review(
+            {
+                "issue": "Expired JWT returns 500 instead of 401",
+                "plan": {
+                    "problem": "GET /auth/me with an old token returns 500",
+                    "hypothesis": "decode_token only catches InvalidSignatureError",
+                    "files_to_inspect": ["app/auth.py"],
+                    "steps": ["Catch ExpiredSignatureError"],
+                },
+                "changed_files": ["app/auth.py", "app/main.py"],
+                "git_diff": "diff --git a/app/auth.py\n+catch ExpiredSignatureError",
+                "test_result": {
+                    "deterministic_pass": True,
+                    "pytest_passed": True,
+                    "exit_code": 0,
+                },
+                "evaluator_result": {
+                    "issue_resolved": True,
+                    "patch_scope": "appropriate",
+                    "regression_risk": "low",
+                    "missing_tests": False,
+                    "feedback": "",
+                },
+            }
+        )
+        for heading in (
+            "### Issue",
+            "### Plan",
+            "### Changed Files",
+            "### Git Diff",
+            "### Test Results",
+            "### Evaluator Result",
+        ):
+            assert heading in rendered
+        assert "Expired JWT returns 500" in rendered
+        assert "hypothesis: decode_token only catches" in rendered
+        assert "app/auth.py" in rendered
+        assert "app/main.py" in rendered
+        assert "diff --git a/app/auth.py" in rendered
+        assert "deterministic_pass: True" in rendered
+        assert "issue_resolved: True" in rendered
+        empty = format_review({})
+        assert "### Issue" in empty
+        assert "(none)" in empty
 
     def test_error_is_previewed(self) -> None:
         _, outcome = summarize_tool(

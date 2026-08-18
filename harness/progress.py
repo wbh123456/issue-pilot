@@ -139,6 +139,46 @@ def _pass_fail(value: bool | None) -> str:
     return "-"
 
 
+def _format_review_kv(data: dict[str, Any]) -> str:
+    lines: list[str] = []
+    for key, value in data.items():
+        text = str(value)
+        if "\n" in text:
+            lines.append(f"{key}:")
+            lines.extend(text.splitlines() or ["(none)"])
+        else:
+            lines.append(f"{key}: {text}")
+    return "\n".join(lines) if lines else "(none)"
+
+
+def format_review(payload: dict[str, Any] | None = None) -> str:
+    """Six-panel approval view for ``review`` / paused solve.
+
+    Sections match the Day 6 CLI: Issue, Plan, Changed Files, Git Diff,
+    Test Results, Evaluator Result.
+    """
+    payload = payload or {}
+    plan = payload.get("plan") if isinstance(payload.get("plan"), dict) else {}
+    files = [str(path) for path in (payload.get("changed_files") or []) if path]
+    tests = payload.get("test_result") if isinstance(payload.get("test_result"), dict) else {}
+    evaluation = (
+        payload.get("evaluator_result")
+        if isinstance(payload.get("evaluator_result"), dict)
+        else {}
+    )
+    issue = str(payload.get("issue") or "").strip() or "(none)"
+    diff = str(payload.get("git_diff") or "").strip() or "(none)"
+    parts = [
+        format_stage_line("Issue", issue),
+        format_stage_line("Plan", format_plan_detail(plan)),
+        format_stage_line("Changed Files", "\n".join(files) if files else "(none)"),
+        format_stage_line("Git Diff", diff),
+        format_stage_line("Test Results", _format_review_kv(tests)),
+        format_stage_line("Evaluator Result", _format_review_kv(evaluation)),
+    ]
+    return "\n\n".join(parts)
+
+
 def format_size(n: int) -> str:
     if n >= 1000:
         return f"{n / 1000:.1f}k chars"

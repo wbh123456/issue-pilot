@@ -230,6 +230,17 @@ class TestSaveRun:
         data = json.loads(path.read_text(encoding="utf-8"))
         assert data["harness_version"] == "v1"
 
+    def test_filename_uses_run_id_when_present(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
+        path = save_run(
+            {
+                "task_id": "issue-001",
+                "harness_version": "v1",
+                "run_id": "issue-001-v1-pausedemo",
+            }
+        )
+        assert path.name == "issue-001-v1-pausedemo.json"
+
 
 class TestSolveTaskDispatch:
     def test_dispatches_v0_and_records_common_fields(
@@ -276,6 +287,9 @@ class TestSolveTaskDispatch:
         assert "recovery_success" not in record
         assert "attempt_history" not in record
         assert "human_retry_count" not in record
+        assert "resumed" not in record
+        assert "run_id" not in record
+        assert "sandbox_sessions" not in record
         assert Path(record["run_path"]).name.startswith("issue-001-v0-")
         assert record["sandbox_backend"] == "docker"
         assert record["sandbox_network"] == "none"
@@ -325,6 +339,14 @@ class TestSolveTaskDispatch:
         assert record["patch_evaluation"] == {}
         assert record["structured_diagnosis"] == {}
         assert record["human_feedback"] == ""
+        assert record["approval_decision"] == ""
+        assert record["resumed"] is False
+        assert record["resume_count"] == 0
+        assert record["sandbox_sessions"] == 1
+        assert record["retrieval_calls"] == 0
+        assert record["workflow_trace"] == []
+        assert record["checkpoint_stages"] == []
+        assert "run_id" not in record
         assert "retrieval_mode" not in record
         assert "recall_at_5" not in record
         assert Path(record["run_path"]).name.startswith("issue-001-v1-")
@@ -724,6 +746,7 @@ class TestCLI:
         assert code == 0
         assert seen["progress"] is None
         assert seen["interactive_recovery"] is False
+        assert seen["require_approval"] is False
 
     def test_solve_passes_interactive_recovery(
         self, monkeypatch: pytest.MonkeyPatch
@@ -764,6 +787,7 @@ class TestCLI:
             harnesses.append(harness)
             progress_flags.append(kwargs.get("progress") is not None)
             assert "interactive_recovery" not in kwargs
+            assert "require_approval" not in kwargs
             return {
                 "task_id": task_id,
                 "harness_version": harness,
@@ -977,3 +1001,190 @@ class TestCLI:
         monkeypatch.setattr(cli, "doctor", lambda **kwargs: Report())
         code = cli.main(["sandbox", "doctor"])
         assert code == 1
+
+
+def _cli_solve_record(**overrides: Any) -> dict[str, Any]:
+    record = {
+        "task_id": "issue-001",
+        "harness_version": "v1",
+        "success": True,
+        "difficulty": "easy",
+        "termination": "completed",
+        "steps": 1,
+        "llm_calls": 1,
+        "tool_call_count": 0,
+        "file_reads": 0,
+        "tokens": 1,
+        "latency": 0.1,
+        "run_path": "runs/x.json",
+        "final_answer": "ok",
+    }
+    record.update(overrides)
+    return record
+
+
+def _cli_session(**overrides: str) -> Any:
+    from eval.session import RunSession
+
+    payload = {
+        "run_id": "issue-001-v1-demo",
+        "thread_id": "issue-001-v1-demo",
+        "task_id": "issue-001",
+        "harness": "v1",
+        "model": "fake-model",
+        "embedder_name": "hashing",
+        "query_mode": "issue",
+        "repo_path": "C:/fake/benchmark",
+        "base_commit": "abc123",
+        "status": "paused",
+        "created_at": "2026-08-17T00:00:00Z",
+    }
+    payload.update(overrides)
+    return RunSession(**payload)
+
+
+class TestCLIApproval:
+    def test_solve_passes_require_approval(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return _cli_solve_record(
+                task_id=task_id, harness_version=kwargs.get("harness_version")
+            )
+
+        monkeypatch.setattr(cli, "solve_task", fake_solve)
+        code = cli.main(
+            ["solve", "issue-001", "--harness", "v1", "--require-approval"]
+        )
+        assert code == 0
+        assert seen["require_approval"] is True
+
+    def test_pause_on_approval_implies_require_approval(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return _cli_solve_record(
+                task_id=task_id, harness_version=kwargs.get("harness_version")
+            )
+
+        monkeypatch.setattr(cli, "solve_task", fake_solve)
+        code = cli.main(
+            ["solve", "issue-001", "--harness", "v1", "--pause-on-approval"]
+        )
+        assert code == 0
+        assert seen["require_approval"] is True
+
+    def test_require_approval_rejects_v0(self) -> None:
+        with pytest.raises(SystemExit):
+            cli.main(["solve", "issue-001", "--require-approval"])
+
+    def test_paused_solve_exits_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
+            return {
+                "task_id": task_id,
+                "harness_version": "v1",
+                "paused": True,
+                "run_id": "issue-001-v1-demo",
+                "status": "waiting_approval",
+                "session_path": "runs/sessions/issue-001-v1-demo.json",
+                "resume_count": 0,
+                "approval_payload": {
+                    "issue": "Expired JWT returns 500",
+                    "plan": {
+                        "problem": "p",
+                        "hypothesis": "h",
+                        "files_to_inspect": [],
+                        "steps": ["a"],
+                    },
+                    "changed_files": ["app/auth.py"],
+                    "git_diff": "diff --git a/app/auth.py",
+                    "test_result": {"deterministic_pass": True},
+                    "evaluator_result": {"issue_resolved": True},
+                },
+            }
+
+        monkeypatch.setattr(cli, "solve_task", fake_solve)
+        code = cli.main(
+            ["solve", "issue-001", "--harness", "v1", "--require-approval"]
+        )
+        assert code == 0
+
+    def test_runs_lists_paused_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            cli,
+            "list_sessions",
+            lambda: [
+                _cli_session(),
+                _cli_session(run_id="done-run", thread_id="done-run", status="completed"),
+            ],
+        )
+        code = cli.main(["runs"])
+        assert code == 0
+
+    def test_review_loads_checkpoint_payload(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+        monkeypatch.setattr(cli, "load_session", lambda run_id: _cli_session(run_id=run_id, thread_id=run_id))
+
+        def fake_payload(run_id: str, **kwargs: Any) -> dict[str, Any]:
+            seen["run_id"] = run_id
+            return {
+                "issue": "Expired JWT returns 500",
+                "plan": {"problem": "p", "hypothesis": "h", "files_to_inspect": [], "steps": ["a"]},
+                "changed_files": ["app/auth.py"],
+                "git_diff": "diff --git a/app/auth.py",
+                "test_result": {"deterministic_pass": True},
+                "evaluator_result": {"issue_resolved": True},
+            }
+
+        monkeypatch.setattr(cli, "load_review_payload", fake_payload)
+        code = cli.main(["review", "issue-001-v1-demo"])
+        assert code == 0
+        assert seen["run_id"] == "issue-001-v1-demo"
+
+    def test_resume_approve(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_resume(run_id: str, **kwargs: Any) -> dict[str, Any]:
+            seen["run_id"] = run_id
+            seen.update(kwargs)
+            return _cli_solve_record(success=True, approval_decision="approve")
+
+        monkeypatch.setattr(cli, "resume_task", fake_resume)
+        code = cli.main(["resume", "issue-001-v1-demo", "--approve"])
+        assert code == 0
+        assert seen["run_id"] == "issue-001-v1-demo"
+        assert seen["decision"] == "approve"
+        assert seen["feedback"] is None
+        assert seen["progress"] is not None
+
+    def test_resume_reject_and_feedback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: list[dict[str, Any]] = []
+
+        def fake_resume(run_id: str, **kwargs: Any) -> dict[str, Any]:
+            seen.append({"run_id": run_id, **kwargs})
+            return _cli_solve_record(success=False, approval_decision=kwargs["decision"])
+
+        monkeypatch.setattr(cli, "resume_task", fake_resume)
+        assert cli.main(["resume", "issue-001-v1-demo", "--reject"]) == 2
+        assert cli.main(
+            ["resume", "issue-001-v1-demo", "--feedback", "Drop the unrelated edit"]
+        ) == 2
+        assert seen[0]["decision"] == "reject"
+        assert seen[1]["decision"] == "feedback"
+        assert seen[1]["feedback"] == "Drop the unrelated edit"
+
+    def test_resume_requires_decision(self) -> None:
+        with pytest.raises(SystemExit):
+            cli.main(["resume", "issue-001-v1-demo"])
+
+    def test_resume_empty_feedback_errors(self) -> None:
+        with pytest.raises(SystemExit):
+            cli.main(["resume", "issue-001-v1-demo", "--feedback", "  "])

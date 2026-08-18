@@ -4,6 +4,8 @@ Usage:
     python cli.py solve issue-001
     python cli.py solve issue-001 --harness v1
     python cli.py solve issue-009 --harness v2
+    python cli.py solve issue-001 --harness v1 --require-approval
+    python cli.py solve issue-001 --harness v1 --pause-on-approval
     python cli.py compare issue-001
     python cli.py retrieve issue-009
     python cli.py retrieve --split hard
@@ -11,6 +13,11 @@ Usage:
     python cli.py sandbox doctor
     python cli.py sandbox build
     python cli.py solve issue-001 --harness v1 --interactive-recovery
+    python cli.py runs
+    python cli.py review <run_id>
+    python cli.py resume <run_id> --approve
+    python cli.py resume <run_id> --reject
+    python cli.py resume <run_id> --feedback "Drop the unrelated edit"
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ from agent.client import default_model
 from eval.retrieval import ALL_MODES, run_retrieval_eval
 from harness.context import RETRIEVE_K
 from harness.limits import MAX_AGENT_STEPS
-from harness.progress import ConsoleReporter, format_recovery_summary
+from harness.progress import ConsoleReporter, format_recovery_summary, format_review
 from retrieval.query import DEFAULT_QUERY_MODE, QUERY_MODES
 from sandbox.image import DEFAULT_IMAGE, DockerPreflightError, build_image, doctor
 
@@ -45,6 +52,32 @@ def solve_task(*args, **kwargs):
     from eval.runner import solve_task as _solve_task
 
     return _solve_task(*args, **kwargs)
+
+
+def resume_task(*args, **kwargs):
+    """Lazy import so ``retrieve`` does not require LangGraph."""
+    from eval.runner import resume_task as _resume_task
+
+    return _resume_task(*args, **kwargs)
+
+
+def load_review_payload(*args, **kwargs):
+    """Lazy import so ``retrieve`` does not require LangGraph."""
+    from eval.runner import load_review_payload as _load_review_payload
+
+    return _load_review_payload(*args, **kwargs)
+
+
+def list_sessions(*args, **kwargs):
+    from eval.session import list_sessions as _list_sessions
+
+    return _list_sessions(*args, **kwargs)
+
+
+def load_session(*args, **kwargs):
+    from eval.session import load_session as _load_session
+
+    return _load_session(*args, **kwargs)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -92,6 +125,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--interactive-recovery",
         action="store_true",
         help="After automatic retries, prompt once for same-process recovery feedback",
+    )
+    solve.add_argument(
+        "--require-approval",
+        action="store_true",
+        help="Interrupt after Layer 2 pass for human approve/reject/feedback "
+        "(implies checkpointing; v1/v2 only)",
+    )
+    solve.add_argument(
+        "--pause-on-approval",
+        action="store_true",
+        help="Write a paused session and exit when the approval gate fires "
+        "(implies --require-approval)",
     )
 
     retrieve = sub.add_parser(
@@ -209,6 +254,41 @@ def _build_parser() -> argparse.ArgumentParser:
         "--image",
         default=DEFAULT_IMAGE,
         help=f"Image tag (default: {DEFAULT_IMAGE})",
+    )
+
+    sub.add_parser("runs", help="List paused approval sessions")
+
+    review = sub.add_parser("review", help="Show the six-panel approval view for a paused run")
+    review.add_argument("run_id", help="Paused session id from `runs`")
+
+    resume = sub.add_parser("resume", help="Resume a paused approval run")
+    resume.add_argument("run_id", help="Paused session id from `runs`")
+    resume_decision = resume.add_mutually_exclusive_group(required=True)
+    resume_decision.add_argument(
+        "--approve",
+        action="store_true",
+        help="Accept the patch and finish the run",
+    )
+    resume_decision.add_argument(
+        "--reject",
+        action="store_true",
+        help="Reject the patch and escalate to needs_human",
+    )
+    resume_decision.add_argument(
+        "--feedback",
+        metavar="TEXT",
+        help="Send the patch back to diagnose with this note",
+    )
+    resume.add_argument(
+        "--max-steps",
+        type=int,
+        default=MAX_AGENT_STEPS,
+        help=f"Max executor ReAct steps (default: {MAX_AGENT_STEPS})",
+    )
+    resume.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Do not print live stage/tool progress",
     )
     return parser
 
@@ -423,11 +503,72 @@ def _print_doctor(report) -> None:
         console.print(f"[red]error:[/red] {error}")
 
 
+def _print_paused(record: dict) -> None:
+    run_id = record.get("run_id") or "-"
+    table = Table(title=f"Paused waiting for approval: {run_id}")
+    table.add_column("Field")
+    table.add_column("Value")
+    for key, value in (
+        ("run_id", str(run_id)),
+        ("task_id", str(record.get("task_id") or "-")),
+        ("harness", str(record.get("harness_version") or "-")),
+        ("status", str(record.get("status") or "waiting_approval")),
+        ("session_path", str(record.get("session_path") or "-")),
+        ("resume_count", str(record.get("resume_count", 0))),
+    ):
+        table.add_row(key, value)
+    console.print(table)
+    console.print(format_review(record.get("approval_payload") or {}))
+    console.print(
+        f"[dim]Review: python cli.py review {run_id}[/dim]\n"
+        f"[dim]Resume: python cli.py resume {run_id} "
+        "--approve|--reject|--feedback TEXT[/dim]"
+    )
+
+
+def _print_runs(sessions: list) -> None:
+    paused = [item for item in sessions if item.status == "paused"]
+    if not paused:
+        console.print("[dim]No paused sessions.[/dim]")
+        return
+    table = Table(title="Paused sessions")
+    table.add_column("run_id")
+    table.add_column("task_id")
+    table.add_column("harness")
+    table.add_column("model")
+    table.add_column("created_at")
+    table.add_column("resume_count", justify="right")
+    for item in paused:
+        table.add_row(
+            item.run_id,
+            item.task_id,
+            item.harness,
+            item.model,
+            item.created_at,
+            str(item.resume_count),
+        )
+    console.print(table)
+
+
+def _resume_decision(args) -> tuple[str, str | None]:
+    if args.approve:
+        return "approve", None
+    if args.reject:
+        return "reject", None
+    feedback = (args.feedback or "").strip()
+    if not feedback:
+        raise ValueError("--feedback requires a non-empty note")
+    return "feedback", feedback
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "solve":
+        require_approval = bool(args.require_approval or args.pause_on_approval)
+        if require_approval and args.harness == "v0":
+            parser.error("--require-approval requires --harness v1 or v2")
         console.print(
             f"[cyan]Solving {args.task_id} with harness {args.harness}...[/cyan]"
         )
@@ -441,11 +582,15 @@ def main(argv: list[str] | None = None) -> int:
                 query_mode=args.query_mode,
                 progress=_progress_reporter(args),
                 interactive_recovery=args.interactive_recovery,
+                require_approval=require_approval,
             )
         except Exception as exc:
             console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")
             return 1
 
+        if record.get("paused"):
+            _print_paused(record)
+            return 0
         _print_summary(record)
         return 0 if record.get("success") else 2
 
@@ -539,6 +684,50 @@ def main(argv: list[str] | None = None) -> int:
 
         parser.error(f"unknown sandbox command: {args.sandbox_command}")
         return 1
+
+    if args.command == "runs":
+        _print_runs(list_sessions())
+        return 0
+
+    if args.command == "review":
+        try:
+            session = load_session(args.run_id)
+            payload = load_review_payload(args.run_id)
+        except Exception as exc:
+            console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")
+            return 1
+        console.print(
+            f"[cyan]Review {session.run_id} "
+            f"({session.task_id}, {session.harness}) "
+            f"status={session.status}[/cyan]"
+        )
+        console.print(format_review(payload))
+        return 0
+
+    if args.command == "resume":
+        try:
+            decision, feedback = _resume_decision(args)
+        except ValueError as exc:
+            parser.error(str(exc))
+        console.print(
+            f"[cyan]Resuming {args.run_id} ({decision})...[/cyan]"
+        )
+        try:
+            record = resume_task(
+                args.run_id,
+                decision=decision,
+                feedback=feedback,
+                max_steps=args.max_steps,
+                progress=_progress_reporter(args),
+            )
+        except Exception as exc:
+            console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")
+            return 1
+        if record.get("paused"):
+            _print_paused(record)
+            return 0
+        _print_summary(record)
+        return 0 if record.get("success") else 2
 
     parser.error(f"unknown command: {args.command}")
     return 1
