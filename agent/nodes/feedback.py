@@ -10,7 +10,7 @@ from agent.state import AgentState
 from harness.limits import MAX_HUMAN_RETRY
 from harness.progress import preview
 
-from ._runtime import configurable, get_reporter
+from ._runtime import configurable, get_reporter, traced
 
 FeedbackProvider = Callable[[str], str | None]
 
@@ -46,22 +46,42 @@ def collect_feedback(state: AgentState, config: RunnableConfig) -> dict:
     reporter = get_reporter(config)
     if int(state.get("human_retry_count") or 0) >= MAX_HUMAN_RETRY:
         reporter.stage("feedback", "refused")
-        return {"status": "feedback_refused"}
+        return traced(
+            state,
+            {"status": "feedback_refused"},
+            node="feedback",
+            detail="refused",
+        )
 
     provider = configurable(config).get("feedback_provider")
     if provider is None:
         reporter.stage("feedback", "skipped")
-        return {"status": "feedback_skipped"}
+        return traced(
+            state,
+            {"status": "feedback_skipped"},
+            node="feedback",
+            detail="skipped",
+        )
 
     raw = provider(_feedback_prompt(state))
     text = (raw or "").strip()[:_FEEDBACK_LIMIT]
     if not text:
         reporter.stage("feedback", "declined")
-        return {"status": "feedback_declined"}
+        return traced(
+            state,
+            {"status": "feedback_declined"},
+            node="feedback",
+            detail="declined",
+        )
 
     reporter.stage("feedback", preview(text))
-    return {
-        "human_feedback": text,
-        "human_retry_count": int(state.get("human_retry_count") or 0) + 1,
-        "status": "feedback_retry",
-    }
+    return traced(
+        state,
+        {
+            "human_feedback": text,
+            "human_retry_count": int(state.get("human_retry_count") or 0) + 1,
+            "status": "feedback_retry",
+        },
+        node="feedback",
+        detail=preview(text),
+    )

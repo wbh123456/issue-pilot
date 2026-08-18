@@ -126,8 +126,13 @@ class TestReviewContract:
 class TestAwaitApprovalNode:
     def test_gate_off_is_noop(self) -> None:
         state = initial_state("bug")
-        assert await_approval(state, {"configurable": {}}) == {}
-        assert await_approval(state, {"configurable": {"require_approval": False}}) == {}
+        for cfg in ({}, {"require_approval": False}):
+            out = await_approval(state, {"configurable": cfg})
+            assert "approval_decision" not in out
+            event = out["workflow_trace"][-1]
+            assert event["node"] == "await_approval"
+            assert event["status"] == "pass_through"
+            assert event["detail"] == "pass_through"
 
     def test_gate_on_without_checkpointer_raises(self) -> None:
         with pytest.raises(ApprovalError, match="checkpointer"):

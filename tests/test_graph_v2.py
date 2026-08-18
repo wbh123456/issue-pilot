@@ -16,6 +16,7 @@ from agent.graph import (
     get_v2_graph,
     run_workflow,
 )
+from agent.nodes._runtime import traced
 from agent.nodes.execute import execute_plan
 from agent.nodes.retrieve import retrieve_context
 from agent.state import initial_state
@@ -163,12 +164,16 @@ def _fake_retrieve(state: dict, config: RunnableConfig) -> dict:
         "llm_calls": 0,
     }
     telemetry["stage_tokens"] = stages
-    return {
-        "relevant_files": ["app/inventory.py", "app/orders.py"],
-        "retrieved_context": "### app/inventory.py  allocate_bin\ndef allocate_bin():\n    pass",
-        "status": "retrieved",
-        "telemetry": telemetry,
-    }
+    return traced(
+        state,
+        {
+            "relevant_files": ["app/inventory.py", "app/orders.py"],
+            "retrieved_context": "### app/inventory.py  allocate_bin\ndef allocate_bin():\n    pass",
+            "status": "retrieved",
+            "telemetry": telemetry,
+        },
+        node="retrieve",
+    )
 
 
 class TestGraphTopology:
@@ -365,6 +370,16 @@ class TestV2Workflow:
         assert result["llm_calls"] == 2 + 1 + 1
         assert result["stage_tokens"]["evaluate"]["llm_calls"] == 1
         assert run_agent_mock.call_args.kwargs.get("search_code_enabled") is False
+        assert [event["node"] for event in result["workflow_trace"]] == [
+            "analyze",
+            "retrieve",
+            "plan",
+            "execute",
+            "verify",
+            "evaluate",
+            "await_approval",
+            "mark_success",
+        ]
 
     def test_fail_retries_then_needs_human_without_re_retrieve(self) -> None:
         client = FakeClient(

@@ -10,7 +10,7 @@ from agent.tools.shell import CommandOutcome, run_command
 from harness.limits import COMMAND_TIMEOUT
 from harness.permissions import CommandPermissionError, parse_command
 
-from ._runtime import get_reporter, require_config
+from ._runtime import get_reporter, require_config, traced
 
 _MISSING_LINT = CommandOutcome(
     command=[],
@@ -147,22 +147,30 @@ def deterministic_verify(state: AgentState, config: RunnableConfig) -> dict:
         f"patch={int(patch_valid)}",
     )
 
-    return {
-        "test_result": {
-            "command": test_command,
-            "lint_command": lint_command,
-            "exit_code": pytest_outcome.exit_code,
-            "passed": deterministic_pass,
-            "deterministic_pass": deterministic_pass,
-            "pytest_passed": pytest_passed,
-            "ruff_passed": ruff_passed,
-            "ruff_autofixed": ruff_autofixed,
-            "patch_valid": patch_valid,
-            "changed_files": list(patch.changed_files),
-            "untracked_files": list(patch.untracked_files),
-            "output": pytest_outcome.format(),
-            "ruff_output": ruff_outcome.format(),
-            "git_diff": patch.format(),
+    return traced(
+        state,
+        {
+            "test_result": {
+                "command": test_command,
+                "lint_command": lint_command,
+                "exit_code": pytest_outcome.exit_code,
+                "passed": deterministic_pass,
+                "deterministic_pass": deterministic_pass,
+                "pytest_passed": pytest_passed,
+                "ruff_passed": ruff_passed,
+                "ruff_autofixed": ruff_autofixed,
+                "patch_valid": patch_valid,
+                "changed_files": list(patch.changed_files),
+                "untracked_files": list(patch.untracked_files),
+                "output": pytest_outcome.format(),
+                "ruff_output": ruff_outcome.format(),
+                "git_diff": patch.format(),
+            },
+            "status": "verify_passed" if deterministic_pass else "verify_failed",
         },
-        "status": "verify_passed" if deterministic_pass else "verify_failed",
-    }
+        node="verify",
+        detail=(
+            f"{label}  pytest={int(pytest_passed)} ruff={int(ruff_passed)} "
+            f"patch={int(patch_valid)}"
+        ),
+    )

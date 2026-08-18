@@ -201,6 +201,16 @@ class TestDurableCheckpointer:
                 "await_approval",
                 "mark_success",
             ]
+            assert [event["node"] for event in snapshot.values["workflow_trace"]] == [
+                "analyze",
+                "plan",
+                "execute",
+                "verify",
+                "evaluate",
+                "await_approval",
+                "mark_success",
+            ]
+            assert "messages" not in (snapshot.values.get("telemetry") or {})
 
     def test_checkpointed_graph_requires_thread_id(self, tmp_path) -> None:
         db = tmp_path / "ck.sqlite"

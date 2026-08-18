@@ -21,7 +21,7 @@ from agent.state import (
 from agent.tools.git import format_file_lists
 from harness.limits import AGENT_TEMPERATURE, MAX_RETRY, truncate_output
 
-from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage
+from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage, traced
 
 _DIAGNOSE_CONTEXT_LIMIT = 4000
 
@@ -146,11 +146,16 @@ def diagnose_failure(state: AgentState, config: RunnableConfig) -> dict:
     status = "failed" if retry_count >= MAX_RETRY else "retrying"
     diagnosis = _diagnosis_text(parsed)
     get_reporter(config).stage("diagnose", diagnosis)
-    return {
-        "diagnosis": diagnosis,
-        "structured_diagnosis": parsed.model_dump(),
-        "attempt_history": [item.model_dump() for item in history],
-        "retry_count": retry_count,
-        "status": status,
-        "telemetry": merge_telemetry(state, **stage_usage("diagnose", response)),
-    }
+    return traced(
+        state,
+        {
+            "diagnosis": diagnosis,
+            "structured_diagnosis": parsed.model_dump(),
+            "attempt_history": [item.model_dump() for item in history],
+            "retry_count": retry_count,
+            "status": status,
+            "telemetry": merge_telemetry(state, **stage_usage("diagnose", response)),
+        },
+        node="diagnose",
+        detail=parsed.failure_category,
+    )

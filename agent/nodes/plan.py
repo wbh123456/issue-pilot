@@ -13,7 +13,7 @@ from agent.tools.filesystem import list_files
 from harness.limits import AGENT_TEMPERATURE
 from harness.progress import format_plan_detail
 
-from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage
+from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage, traced
 
 PLAN_SYSTEM = """
 You are the planner for a coding-agent workflow.
@@ -164,8 +164,13 @@ def structured_plan(state: AgentState, config: RunnableConfig) -> dict:
     reporter = get_reporter(config)
     reporter.stage("plan", format_plan_detail(plan_data, retry=replan))
 
-    return {
-        "plan": plan_data,
-        "status": "planned",
-        "telemetry": telemetry,
-    }
+    return traced(
+        state,
+        {
+            "plan": plan_data,
+            "status": "planned",
+            "telemetry": telemetry,
+        },
+        node="plan",
+        detail=str(plan_data.get("hypothesis") or ""),
+    )

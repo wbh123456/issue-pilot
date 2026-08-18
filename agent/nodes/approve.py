@@ -10,7 +10,7 @@ from langgraph.types import interrupt
 from agent.state import AgentState
 from harness.limits import truncate_output
 
-from ._runtime import configurable, get_reporter
+from ._runtime import configurable, get_reporter, traced
 
 ApprovalDecision = Literal["approve", "reject", "feedback"]
 
@@ -89,7 +89,13 @@ def _has_checkpointer(config: RunnableConfig) -> bool:
 def await_approval(state: AgentState, config: RunnableConfig) -> dict:
     """Pass through unless ``require_approval``; otherwise interrupt for a decision."""
     if not configurable(config).get("require_approval"):
-        return {}
+        return traced(
+            state,
+            {},
+            node="await_approval",
+            status="pass_through",
+            detail="pass_through",
+        )
     if not _has_checkpointer(config):
         raise ApprovalError(
             "require_approval needs a checkpointer; interrupt() cannot resume without one"
@@ -114,4 +120,4 @@ def await_approval(state: AgentState, config: RunnableConfig) -> dict:
         update["status"] = "approval_feedback"
         update["human_feedback"] = feedback
         get_reporter(config).stage("approval", "feedback")
-    return update
+    return traced(state, update, node="await_approval", detail=decision)

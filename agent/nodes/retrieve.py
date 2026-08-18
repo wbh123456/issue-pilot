@@ -14,7 +14,7 @@ from retrieval.dense import Embedder, make_embedder
 from retrieval.indexer import build_index
 from retrieval.query import DEFAULT_QUERY_MODE, build_retrieval_query, normalize_query_mode
 
-from ._runtime import get_reporter, merge_telemetry, require_config
+from ._runtime import get_reporter, merge_telemetry, require_config, traced
 
 
 def _embedder_from_config(cfg: dict) -> Embedder:
@@ -87,9 +87,14 @@ def retrieve_context(state: AgentState, config: RunnableConfig) -> dict:
     )
     reporter = get_reporter(config)
     reporter.stage("retrieve", summarize_files(files))
-    return {
-        "relevant_files": files,
-        "retrieved_context": blob,
-        "telemetry": telemetry,
-        "status": "retrieved",
-    }
+    return traced(
+        state,
+        {
+            "relevant_files": files,
+            "retrieved_context": blob,
+            "telemetry": telemetry,
+            "status": "retrieved",
+        },
+        node="retrieve",
+        detail=summarize_files(files),
+    )

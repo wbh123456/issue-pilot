@@ -12,7 +12,7 @@ from agent.tools.schema import TOOLS, V2_TOOLS
 from harness.limits import MAX_AGENT_STEPS
 from retrieval.dense import Embedder, make_embedder
 
-from ._runtime import get_reporter, merge_telemetry, require_config
+from ._runtime import get_reporter, merge_telemetry, require_config, traced
 
 _EXECUTOR_GUARDRAIL = (
     "Ignore plan paths that are not present in the repository. "
@@ -106,8 +106,8 @@ def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
         retrieval_calls=search_calls,
         final_answer=result.get("final_answer", ""),
         termination=result.get("termination", ""),
+        # Keep raw chat messages out of checkpointed state; trajectory is enough.
         trajectory=result.get("trajectory", []),
-        messages=result.get("messages", []),
         stage_tokens={
             "execute": {
                 "prompt_tokens": prompt_tokens,
@@ -117,7 +117,12 @@ def execute_plan(state: AgentState, config: RunnableConfig) -> dict:
         },
     )
 
-    return {
-        "status": "executed",
-        "telemetry": telemetry,
-    }
+    return traced(
+        state,
+        {
+            "status": "executed",
+            "telemetry": telemetry,
+        },
+        node="execute",
+        detail=f"steps={exec_steps}",
+    )

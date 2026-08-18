@@ -205,6 +205,7 @@ class TestInitialStateSerialization:
         assert loaded["human_feedback"] == ""
         assert loaded["approval_decision"] == ""
         assert loaded["approval_history"] == []
+        assert loaded["workflow_trace"] == []
         for forbidden in ("client", "sandbox", "progress", "feedback_provider"):
             assert forbidden not in loaded
             assert forbidden not in state

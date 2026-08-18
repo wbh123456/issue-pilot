@@ -16,7 +16,7 @@ from agent.state import (
 from agent.tools.git import format_file_lists
 from harness.limits import AGENT_TEMPERATURE, truncate_output
 
-from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage
+from ._runtime import get_reporter, merge_telemetry, require_config, stage_usage, traced
 
 _EVALUATE_CONTEXT_LIMIT = 4000
 
@@ -69,10 +69,15 @@ def evaluate_patch(state: AgentState, config: RunnableConfig) -> dict:
     test_result = dict(state.get("test_result") or {})
     if test_result.get("deterministic_pass") is not True:
         get_reporter(config).stage("evaluate", "skipped")
-        return {
-            "patch_evaluation": {},
-            "status": "evaluate_skipped",
-        }
+        return traced(
+            state,
+            {
+                "patch_evaluation": {},
+                "status": "evaluate_skipped",
+            },
+            node="evaluate",
+            detail="skipped",
+        )
 
     cfg = require_config(config, "client", "model")
     client = cfg["client"]
@@ -104,8 +109,13 @@ def evaluate_patch(state: AgentState, config: RunnableConfig) -> dict:
         "evaluate",
         f"{label}  scope={parsed.patch_scope} risk={parsed.regression_risk}",
     )
-    return {
-        "patch_evaluation": parsed.model_dump(),
-        "status": "evaluate_passed" if passed else "evaluate_failed",
-        "telemetry": merge_telemetry(state, **stage_usage("evaluate", response)),
-    }
+    return traced(
+        state,
+        {
+            "patch_evaluation": parsed.model_dump(),
+            "status": "evaluate_passed" if passed else "evaluate_failed",
+            "telemetry": merge_telemetry(state, **stage_usage("evaluate", response)),
+        },
+        node="evaluate",
+        detail=f"{label}  scope={parsed.patch_scope} risk={parsed.regression_risk}",
+    )

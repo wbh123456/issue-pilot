@@ -544,6 +544,24 @@ class TestWorkflowGraph:
         diagnose_mock.assert_not_called()
         assert result["attempt_history"] == []
         assert result["retry_count"] == 0
+        assert [event["node"] for event in result["workflow_trace"]] == [
+            "analyze",
+            "plan",
+            "execute",
+            "verify",
+            "evaluate",
+            "await_approval",
+            "mark_success",
+        ]
+        assert result["workflow_trace"][-2]["detail"] == "pass_through"
+        assert result["checkpoint_stages"] == [
+            "Issue analyzed",
+            "Plan generated",
+            "Patch generated",
+            "Tests executed",
+            "Waiting approval",
+        ]
+        assert result["messages"] == []
         assert len(client.calls) == 3  # analyze + plan + evaluate
         assert "Repository inventory" in client.calls[1]["messages"][1]["content"]
         assert "Git diff" in client.calls[2]["messages"][1]["content"]
@@ -704,6 +722,31 @@ class TestWorkflowGraph:
         assert any(s[0] == "evaluate" and str(s[1]).startswith("PASS") for s in stages)
         assert ("success", "") in stages
         assert result["stage_tokens"]["evaluate"]["llm_calls"] == 1
+        assert [event["node"] for event in result["workflow_trace"]] == [
+            "analyze",
+            "plan",
+            "execute",
+            "verify",
+            "diagnose",
+            "plan",
+            "execute",
+            "verify",
+            "evaluate",
+            "await_approval",
+            "mark_success",
+        ]
+        assert [
+            event["retry_count"]
+            for event in result["workflow_trace"]
+            if event["node"] == "plan"
+        ] == [0, 1]
+        assert result["checkpoint_stages"] == [
+            "Issue analyzed",
+            "Plan generated",
+            "Patch generated",
+            "Tests executed",
+            "Waiting approval",
+        ]
 
     def test_evaluator_reject_then_retry_pass(self) -> None:
         client = FakeClient(
@@ -1202,6 +1245,8 @@ class TestAdaptResult:
         assert out["retry_count"] == 0
         assert out["stage_tokens"]["analyze"]["llm_calls"] == 1
         assert out["patch_evaluation"]["issue_resolved"] is True
+        assert out["workflow_trace"] == []
+        assert out["checkpoint_stages"] == []
 
     def test_needs_human_termination(self) -> None:
         state = initial_state("bug")
