@@ -1188,3 +1188,49 @@ class TestCLIApproval:
     def test_resume_empty_feedback_errors(self) -> None:
         with pytest.raises(SystemExit):
             cli.main(["resume", "issue-001-v1-demo", "--feedback", "  "])
+
+
+class TestCLIMCP:
+    def test_serve_uses_repo_and_does_not_print(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_serve(repo) -> None:
+            seen["repo"] = Path(repo)
+
+        monkeypatch.setattr("harness.mcp_server.run_stdio_server", fake_serve)
+        code = cli.main(["mcp", "serve", "--repo", str(tmp_path)])
+        assert code == 0
+        assert seen["repo"] == tmp_path.resolve()
+
+    def test_demo_prints_capability_chain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        def fake_demo(repo, *, path: str, query: str) -> dict[str, Any]:
+            assert Path(repo) == tmp_path.resolve()
+            assert path == "app/hello.py"
+            return {
+                "tools": ["read_file", "search_code", "git_diff"],
+                "calls": [
+                    {
+                        "name": "read_file",
+                        "arguments": {"path": path},
+                        "text": "def greet():\n    return 1\n",
+                        "isError": False,
+                    }
+                ],
+            }
+
+        monkeypatch.setattr("harness.mcp_client.run_demo", fake_demo)
+        code = cli.main(
+            ["mcp", "demo", "--repo", str(tmp_path), "--path", "app/hello.py"]
+        )
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "MCP Client" in out
+        assert "read_file" in out
+        assert "def greet" in out
+
+    def test_missing_repo_exits_one(self, tmp_path: Path) -> None:
+        missing = tmp_path / "no-such-repo"
+        assert cli.main(["mcp", "serve", "--repo", str(missing)]) == 1
+

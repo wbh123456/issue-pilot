@@ -18,6 +18,8 @@ Usage:
     python cli.py resume <run_id> --approve
     python cli.py resume <run_id> --reject
     python cli.py resume <run_id> --feedback "Drop the unrelated edit"
+    python cli.py mcp serve --repo ../issue-pilot-benchmark
+    python cli.py mcp demo --repo ../issue-pilot-benchmark
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -289,6 +292,37 @@ def _build_parser() -> argparse.ArgumentParser:
         "--quiet",
         action="store_true",
         help="Do not print live stage/tool progress",
+    )
+
+    mcp = sub.add_parser(
+        "mcp",
+        help="Minimal MCP stdio server and client demo (live V1/V2 tools stay direct)",
+    )
+    mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = mcp_sub.add_parser("serve", help="Serve read_file/search_code/git_diff on stdio")
+    mcp_serve.add_argument(
+        "--repo",
+        default=None,
+        help="Repository root (default: sibling issue-pilot-benchmark)",
+    )
+    mcp_demo = mcp_sub.add_parser(
+        "demo",
+        help="Client round-trip: Agent -> MCP Client -> MCP Server -> Tool",
+    )
+    mcp_demo.add_argument(
+        "--repo",
+        default=None,
+        help="Repository root (default: sibling issue-pilot-benchmark)",
+    )
+    mcp_demo.add_argument(
+        "--path",
+        default="app/auth.py",
+        help="Repo-relative file for the demo read_file call",
+    )
+    mcp_demo.add_argument(
+        "--query",
+        default="decode_token",
+        help="Query for the demo search_code call",
     )
     return parser
 
@@ -728,6 +762,36 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         _print_summary(record)
         return 0 if record.get("success") else 2
+
+    if args.command == "mcp":
+        from harness.mcp_client import run_demo
+        from harness.mcp_server import default_repo_path, run_stdio_server
+
+        repo = Path(args.repo).resolve() if args.repo else default_repo_path()
+        if not repo.is_dir():
+            sys.stderr.write(f"Error: repository not found: {repo}\n")
+            return 1
+        if args.mcp_command == "serve":
+            run_stdio_server(repo)
+            return 0
+        if args.mcp_command == "demo":
+            console.print("[cyan]Agent -> MCP Client -> MCP Server -> Tool[/cyan]")
+            try:
+                result = run_demo(repo, path=args.path, query=args.query)
+            except Exception as exc:
+                console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")
+                return 1
+            tools = ", ".join(result.get("tools") or []) or "-"
+            console.print(f"tools: {tools}")
+            for call in result.get("calls") or []:
+                preview = (call.get("text") or "").strip() or "(empty)"
+                if len(preview) > 800:
+                    preview = preview[:797].rstrip() + "..."
+                console.print(f"\n[bold]{call.get('name')}[/bold] {call.get('arguments')}")
+                console.print(preview)
+            return 0
+        parser.error(f"unknown mcp command: {args.mcp_command}")
+        return 1
 
     parser.error(f"unknown command: {args.command}")
     return 1
