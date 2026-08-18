@@ -7,7 +7,7 @@ Files live in ``runs/sessions/{run_id}.json`` so they are not picked up by
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,6 +45,7 @@ class RunSession:
     base_commit: str
     status: str
     created_at: str
+    resume_count: int = 0
 
 
 def utc_now_iso() -> str:
@@ -73,12 +74,16 @@ def session_from_dict(data: dict[str, Any]) -> RunSession:
     missing = [key for key in _SESSION_FIELDS if key not in data]
     if missing:
         raise ValueError("session missing fields: " + ", ".join(missing))
-    values = {}
+    values: dict[str, Any] = {}
     for key in _SESSION_FIELDS:
         value = data[key]
         if not isinstance(value, str) or not value:
             raise ValueError(f"session field {key!r} must be a non-empty string")
         values[key] = value
+    raw_count = data.get("resume_count", 0)
+    if isinstance(raw_count, bool) or not isinstance(raw_count, int) or raw_count < 0:
+        raise ValueError("session field 'resume_count' must be a non-negative int")
+    values["resume_count"] = raw_count
     return RunSession(**values)
 
 
@@ -106,6 +111,18 @@ def load_session(run_id: str, *, sessions_dir: Path | None = None) -> RunSession
             f"session run_id {loaded.run_id!r} does not match path {run_id!r}"
         )
     return loaded
+
+
+def update_session(
+    session: RunSession,
+    *,
+    sessions_dir: Path | None = None,
+    **changes: Any,
+) -> RunSession:
+    """Write ``session`` with ``changes`` applied (frozen dataclass replace)."""
+    updated = replace(session, **changes)
+    save_session(updated, sessions_dir=sessions_dir)
+    return updated
 
 
 def list_sessions(*, sessions_dir: Path | None = None) -> list[RunSession]:

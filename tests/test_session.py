@@ -17,6 +17,7 @@ from eval.session import (
     save_session,
     session_from_dict,
     session_path,
+    update_session,
 )
 
 
@@ -53,6 +54,36 @@ class TestRunSession:
         loaded = load_session(session.run_id, sessions_dir=tmp_path)
         assert loaded == session
         assert json.loads(path.read_text(encoding="utf-8")) == asdict(session)
+        assert loaded.resume_count == 0
+
+    def test_resume_count_round_trip_and_update(self, tmp_path: Path) -> None:
+        original = _session()
+        save_session(original, sessions_dir=tmp_path)
+        loaded = load_session(original.run_id, sessions_dir=tmp_path)
+        assert loaded.resume_count == 0
+        updated = update_session(
+            loaded, sessions_dir=tmp_path, status="paused", resume_count=2
+        )
+        assert updated.status == "paused"
+        assert updated.resume_count == 2
+        assert load_session(updated.run_id, sessions_dir=tmp_path).resume_count == 2
+
+    def test_resume_count_defaults_when_missing(self) -> None:
+        payload = {
+            "run_id": "issue-001-v1-20260817T000000Z",
+            "thread_id": "issue-001-v1-20260817T000000Z",
+            "task_id": "issue-001",
+            "harness": "v1",
+            "model": "deepseek-v4-flash",
+            "embedder_name": "hashing",
+            "query_mode": "issue",
+            "repo_path": "C:/fake/benchmark",
+            "base_commit": "abc123",
+            "status": "paused",
+            "created_at": "2026-08-17T00:00:00Z",
+        }
+        loaded = session_from_dict(payload)
+        assert loaded.resume_count == 0
 
     def test_list_skips_corrupt_and_sorts(self, tmp_path: Path) -> None:
         first = save_session(

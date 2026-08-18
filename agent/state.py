@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal, NotRequired, TypeVar, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -104,11 +105,42 @@ class Telemetry(TypedDict, total=False):
     retrieval_calls: int
 
 
-# Optional: node visit log for debugging/eval; not required for routing.
-# class WorkflowTraceEvent(TypedDict, total=False):
-#     node: str
-#     status: str
-#     detail: str
+class WorkflowTraceEvent(TypedDict):
+    """One graph-node visit. Retries append a new event; they never overwrite."""
+
+    node: str
+    status: str
+    detail: str
+    retry_count: int
+    tokens_delta: int
+    timestamp: str
+
+
+CHECKPOINT_STAGE_LABELS: dict[str, str] = {
+    "analyze": "Issue analyzed",
+    "plan": "Plan generated",
+    "execute": "Patch generated",
+    "verify": "Tests executed",
+    "await_approval": "Waiting approval",
+}
+
+
+def reached_checkpoint_stages(
+    trace: Sequence[Mapping[str, Any]] | None,
+) -> list[str]:
+    """Map first visits of the five Day-6 stages onto node boundaries."""
+    seen: set[str] = set()
+    stages: list[str] = []
+    for event in trace or []:
+        node = str(event.get("node") or "")
+        if node in seen:
+            continue
+        label = CHECKPOINT_STAGE_LABELS.get(node)
+        if not label:
+            continue
+        seen.add(node)
+        stages.append(label)
+    return stages
 
 
 class AgentState(TypedDict):
@@ -136,14 +168,13 @@ class AgentState(TypedDict):
     human_feedback: NotRequired[str]
     approval_decision: NotRequired[str]
     approval_history: NotRequired[list[dict[str, Any]]]
+    workflow_trace: NotRequired[list[WorkflowTraceEvent]]
 
     # --- optional (commented out to keep Phase 2 state minimal) ---
     # Can be derived from verify git_diff:
     # changed_files: NotRequired[list[str]]
     # Executor metrics can fold into telemetry + run JSON:
     # execution_result: NotRequired[dict[str, Any]]
-    # Debug/eval aid; not required for routing correctness:
-    # workflow_trace: NotRequired[list[WorkflowTraceEvent]]
 
 
 def _load_json_value(
@@ -320,4 +351,5 @@ def initial_state(issue: str) -> AgentState:
         "human_feedback": "",
         "approval_decision": "",
         "approval_history": [],
+        "workflow_trace": [],
     }

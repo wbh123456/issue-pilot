@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command
 
 from agent.nodes import (
     analyze_issue,
@@ -18,13 +19,14 @@ from agent.nodes import (
     execute_plan,
     structured_plan,
 )
-from agent.nodes._runtime import get_reporter
+from agent.nodes._runtime import get_reporter, traced
 from agent.nodes.approve import ApprovalError, interrupt_payload
 from agent.state import (
     AgentState,
     EvaluationValidationError,
     initial_state,
     patch_evaluation_passed,
+    reached_checkpoint_stages,
 )
 from harness.limits import GRAPH_RECURSION_LIMIT, MAX_AGENT_STEPS, MAX_RETRY
 from harness.progress import ProgressReporter
@@ -42,13 +44,13 @@ def _layer2_passed(raw: object) -> bool:
 def mark_success(state: AgentState, config: RunnableConfig) -> dict:
     """Terminal PASS node — status only; no LLM call."""
     get_reporter(config).stage("success")
-    return {"status": "success"}
+    return traced(state, {"status": "success"}, node="mark_success")
 
 
 def mark_needs_human(state: AgentState, config: RunnableConfig) -> dict:
     """Terminal escalation after the retry budget is exhausted."""
     get_reporter(config).stage("needs_human")
-    return {"status": "needs_human"}
+    return traced(state, {"status": "needs_human"}, node="mark_needs_human")
 
 
 def route_after_verify(state: AgentState) -> Literal["evaluate", "diagnose"]:
@@ -246,6 +248,10 @@ def adapt_result(state: AgentState) -> dict[str, Any]:
         "human_feedback": state.get("human_feedback") or "",
         "approval_decision": state.get("approval_decision") or "",
         "approval_history": list(state.get("approval_history") or []),
+        "workflow_trace": list(state.get("workflow_trace") or []),
+        "checkpoint_stages": reached_checkpoint_stages(
+            state.get("workflow_trace") or []
+        ),
         "query_mode": telemetry.get("query_mode"),
         "embedder_name": telemetry.get("embedder_name"),
         "retrieve_query": telemetry.get("retrieve_query"),
@@ -298,6 +304,38 @@ def build_runtime_config(
     }
 
 
+def _require_checkpointed_graph(compiled, *, thread_id: str | None, require_approval: bool) -> None:
+    if require_approval and compiled.checkpointer is None:
+        raise ApprovalError(
+            "require_approval needs a checkpointer; interrupt() cannot resume without one"
+        )
+    if compiled.checkpointer is not None and not thread_id:
+        raise ValueError(
+            "thread_id is required when invoking a checkpointed graph"
+        )
+
+
+def _adapt_invoke_result(final_state: Any, started_at: float) -> dict[str, Any]:
+    payload = interrupt_payload(final_state)
+    if payload is not None:
+        clean = {
+            key: value
+            for key, value in final_state.items()
+            if key != "__interrupt__"
+        }
+        result = adapt_result(clean)
+        result["status"] = "waiting_approval"
+        result["termination"] = "waiting_approval"
+        result["workflow_passed"] = False
+        result["approval_payload"] = payload
+        result["latency"] = time.perf_counter() - started_at
+        return result
+    result = adapt_result(final_state)
+    # Wall-clock for the full V1 workflow (analyze/plan/execute/verify/evaluate/diagnose).
+    result["latency"] = time.perf_counter() - started_at
+    return result
+
+
 def run_workflow(
     *,
     client,
@@ -327,14 +365,9 @@ def run_workflow(
     ``require_approval`` interrupts after Layer 2 pass and needs a checkpointer.
     """
     compiled = graph or get_graph()
-    if require_approval and compiled.checkpointer is None:
-        raise ApprovalError(
-            "require_approval needs a checkpointer; interrupt() cannot resume without one"
-        )
-    if compiled.checkpointer is not None and not thread_id:
-        raise ValueError(
-            "thread_id is required when invoking a checkpointed graph"
-        )
+    _require_checkpointed_graph(
+        compiled, thread_id=thread_id, require_approval=require_approval
+    )
     started_at = time.perf_counter()
     final_state = compiled.invoke(
         initial_state(issue),
@@ -356,21 +389,62 @@ def run_workflow(
             require_approval=require_approval,
         ),
     )
-    payload = interrupt_payload(final_state)
-    if payload is not None:
-        clean = {
-            key: value
-            for key, value in final_state.items()
-            if key != "__interrupt__"
-        }
-        result = adapt_result(clean)
-        result["status"] = "waiting_approval"
-        result["termination"] = "waiting_approval"
-        result["workflow_passed"] = False
-        result["approval_payload"] = payload
-        result["latency"] = time.perf_counter() - started_at
-        return result
-    result = adapt_result(final_state)
-    # Wall-clock for the full V1 workflow (analyze/plan/execute/verify/evaluate/diagnose).
-    result["latency"] = time.perf_counter() - started_at
-    return result
+    return _adapt_invoke_result(final_state, started_at)
+
+
+def resume_workflow(
+    *,
+    graph,
+    thread_id: str,
+    client,
+    repo_path: str,
+    test_command: str,
+    decision: str,
+    feedback: str = "",
+    lint_command: str = "ruff check app",
+    model: str = "deepseek-v4-flash",
+    max_steps: int = MAX_AGENT_STEPS,
+    sandbox=None,
+    enable_search_code: bool = False,
+    embedder_name: str = "hashing",
+    query_mode: str = "issue",
+    progress: ProgressReporter | None = None,
+    feedback_provider=None,
+    recursion_limit: int = GRAPH_RECURSION_LIMIT,
+    require_approval: bool = True,
+) -> dict[str, Any]:
+    """Resume an interrupted graph with ``Command(resume=...)``.
+
+    Uses the same ``build_runtime_config`` as ``run_workflow`` so solve and
+    resume cannot drift. The checkpointer must already hold ``thread_id``.
+    """
+    compiled = graph
+    _require_checkpointed_graph(
+        compiled, thread_id=thread_id, require_approval=require_approval
+    )
+    if compiled.checkpointer is None:
+        raise ApprovalError(
+            "resume needs a checkpointer; interrupt() cannot resume without one"
+        )
+    started_at = time.perf_counter()
+    final_state = compiled.invoke(
+        Command(resume={"decision": decision, "feedback": feedback}),
+        config=build_runtime_config(
+            client=client,
+            repo_path=repo_path,
+            test_command=test_command,
+            lint_command=lint_command,
+            model=model,
+            max_steps=max_steps,
+            sandbox=sandbox,
+            enable_search_code=enable_search_code,
+            embedder_name=embedder_name,
+            query_mode=query_mode,
+            progress=progress,
+            feedback_provider=feedback_provider,
+            thread_id=thread_id,
+            recursion_limit=recursion_limit,
+            require_approval=require_approval,
+        ),
+    )
+    return _adapt_invoke_result(final_state, started_at)

@@ -11,11 +11,23 @@ from pathlib import Path
 from typing import Any, Literal
 
 from agent.client import create_client, default_model
-from agent.graph import get_v2_graph, run_workflow
+from agent.graph import build_graph, get_v2_graph, resume_workflow, run_workflow
 from agent.loop import run_agent
+from agent.nodes.approve import review_payload
+from agent.state import reached_checkpoint_stages
 from agent.tools.shell import run_tests
 from eval.metrics import recall_at_k
-from eval.repository import GOLD_STAGING_DIRNAME, git_sha, reset_repo
+from eval.repository import GOLD_STAGING_DIRNAME, git_sha, reset_repo, verify_resume_worktree
+from eval.session import (
+    RunSession,
+    load_session,
+    new_run_id,
+    save_session,
+    session_path,
+    update_session,
+    utc_now_iso,
+)
+from harness.checkpoint import open_checkpointer
 from harness.limits import AGENT_TEMPERATURE, MAX_AGENT_STEPS
 from retrieval.query import DEFAULT_QUERY_MODE, normalize_query_mode
 from sandbox.image import DEFAULT_IMAGE
@@ -124,9 +136,13 @@ def _normalize_harness(harness_version: str) -> HarnessVersion:
 
 def save_run(record: dict[str, Any]) -> Path:
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    harness = record.get("harness_version") or "v0"
-    out = RUNS_DIR / f"{record['task_id']}-{harness}-{stamp}.json"
+    run_id = record.get("run_id")
+    if run_id:
+        out = RUNS_DIR / f"{run_id}.json"
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        harness = record.get("harness_version") or "v0"
+        out = RUNS_DIR / f"{record['task_id']}-{harness}-{stamp}.json"
     out.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
     return out
 
@@ -146,7 +162,17 @@ def _run_harness(
     query_mode: str = DEFAULT_QUERY_MODE,
     progress=None,
     feedback_provider=None,
+    graph=None,
+    thread_id: str | None = None,
+    require_approval: bool = False,
 ) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    if graph is not None:
+        extra["graph"] = graph
+    if thread_id:
+        extra["thread_id"] = thread_id
+    if require_approval:
+        extra["require_approval"] = require_approval
     if harness == "v0":
         return run_agent(
             client=client,
@@ -170,7 +196,10 @@ def _run_harness(
             sandbox=sandbox,
             progress=progress,
             feedback_provider=feedback_provider,
+            **extra,
         )
+    extra.setdefault("graph", get_v2_graph())
+    extra["enable_search_code"] = True
     return run_workflow(
         client=client,
         issue=issue,
@@ -180,12 +209,11 @@ def _run_harness(
         model=model,
         max_steps=max_steps,
         sandbox=sandbox,
-        graph=get_v2_graph(),
-        enable_search_code=True,
         embedder_name=embedder_name,
         query_mode=query_mode,
         progress=progress,
         feedback_provider=feedback_provider,
+        **extra,
     )
 
 
@@ -212,6 +240,8 @@ def _empty_agent_result() -> dict[str, Any]:
         "attempt_history": [],
         "structured_diagnosis": {},
         "patch_evaluation": {},
+        "workflow_trace": [],
+        "checkpoint_stages": [],
     }
 
 
@@ -260,105 +290,63 @@ def _sandbox_fields(
     }
 
 
-def solve_task(
-    task_id: str,
-    *,
-    model: str | None = None,
-    max_steps: int = MAX_AGENT_STEPS,
-    client=None,
-    harness_version: str = "v0",
-    embedder_name: str = "hashing",
-    query_mode: str = DEFAULT_QUERY_MODE,
-    progress=None,
-    interactive_recovery: bool = False,
-    feedback_provider=None,
-) -> dict[str, Any]:
-    """Full harness cycle for one dataset task.
+def _waiting_approval(result: dict[str, Any]) -> bool:
+    return (
+        result.get("termination") == "waiting_approval"
+        or result.get("status") == "waiting_approval"
+    )
 
-    Flow: reset repo → enter one sandbox → run V0/V1/V2 → gold test → cleanup.
-    Gold scoring stays independent of workflow verification.
-    Sandbox startup or execution failures still produce a versioned run artifact.
-    """
-    harness = _normalize_harness(harness_version)
-    task = get_task(task_id)
-    repo_path = resolve_repo_path(task)
-    model_name = model or default_model()
-    llm = client or create_client()
-    retrieve_query_mode = normalize_query_mode(query_mode)
-    provider = feedback_provider
-    if provider is None and interactive_recovery:
-        from agent.nodes.feedback import stdin_feedback_provider
 
-        provider = stdin_feedback_provider
-
-    reset_repo(repo_path, task["base_commit"])
-
-    agent_result = _empty_agent_result()
-    gold: dict[str, Any] | None = None
-    error_type: str | None = None
-    error_message: str | None = None
-    gold_error_type: str | None = None
-    gold_error_message: str | None = None
-    sandbox_record = _sandbox_fields(None)
-
+def _score_gold_or_error(
+    repo_path: Path,
+    task: dict[str, Any],
+    sandbox,
+) -> tuple[dict[str, Any], str | None, str | None]:
+    """Run gold inside an open sandbox, or synthesize a failed gold payload."""
     try:
-        with SandboxRunner(repo_path, task_id=task_id) as sandbox:
-            try:
-                agent_result = _run_harness(
-                    harness=harness,
-                    client=llm,
-                    issue=task["issue"],
-                    repo_path=str(repo_path),
-                    test_command=task["test_command"],
-                    lint_command=str(task.get("lint_command") or ""),
-                    model=model_name,
-                    max_steps=max_steps,
-                    sandbox=sandbox,
-                    embedder_name=embedder_name,
-                    query_mode=retrieve_query_mode,
-                    progress=progress,
-                    feedback_provider=provider,
-                )
-            except Exception as exc:
-                error_type = type(exc).__name__
-                error_message = str(exc)
-                agent_result = _empty_agent_result()
-
-            try:
-                if not sandbox.meta.usable:
-                    gold_error_type = "SandboxUnusableError"
-                    gold_error_message = (
-                        "sandbox is not usable; skipped gold test after "
-                        "timeout or forced cleanup"
-                    )
-                    gold = _failed_gold(
-                        f"Error running gold test: {gold_error_type}: "
-                        f"{gold_error_message}"
-                    )
-                else:
-                    gold = run_gold_test(repo_path, task, sandbox=sandbox)
-            except Exception as exc:
-                gold_error_type = type(exc).__name__
-                gold_error_message = str(exc)
-                gold = _failed_gold(
-                    f"Error running gold test: {gold_error_type}: {gold_error_message}"
-                )
-        # Snapshot after __exit__ so cleanup outcome is included.
-        sandbox_record = _sandbox_fields(sandbox.meta)
-    except Exception as exc:
-        # Construction or start failed; __exit__ did not run.
-        if error_type is None:
-            error_type = type(exc).__name__
-            error_message = str(exc)
-        sandbox_record = _sandbox_fields(None, start_error=str(exc))
-        if gold is None:
-            gold = _failed_gold(
-                f"Error running gold test: sandbox unavailable: {type(exc).__name__}: {exc}"
+        if not sandbox.meta.usable:
+            gold_error_type = "SandboxUnusableError"
+            gold_error_message = (
+                "sandbox is not usable; skipped gold test after "
+                "timeout or forced cleanup"
             )
-            gold_error_type = type(exc).__name__
-            gold_error_message = str(exc)
+            gold = _failed_gold(
+                f"Error running gold test: {gold_error_type}: {gold_error_message}"
+            )
+            return gold, gold_error_type, gold_error_message
+        return run_gold_test(repo_path, task, sandbox=sandbox), None, None
+    except Exception as exc:
+        gold_error_type = type(exc).__name__
+        gold_error_message = str(exc)
+        gold = _failed_gold(
+            f"Error running gold test: {gold_error_type}: {gold_error_message}"
+        )
+        return gold, gold_error_type, gold_error_message
 
-    # V0 has one LLM call per ReAct step; V1 reports aggregated stage calls.
+
+def _build_run_record(
+    *,
+    task_id: str,
+    task: dict[str, Any],
+    harness: HarnessVersion,
+    repo_path: Path,
+    model_name: str,
+    retrieve_query_mode: str,
+    embedder_name: str,
+    agent_result: dict[str, Any],
+    gold: dict[str, Any] | None,
+    error_type: str | None,
+    error_message: str | None,
+    gold_error_type: str | None,
+    gold_error_message: str | None,
+    sandbox_record: dict[str, Any],
+    run_id: str | None = None,
+    thread_id: str | None = None,
+    resumed: bool = False,
+    resume_count: int = 0,
+    sandbox_sessions: int = 1,
+) -> dict[str, Any]:
+    """Assemble the versioned run JSON. Gold ``success`` is independent of HITL."""
     llm_calls = agent_result.get("llm_calls")
     if llm_calls is None:
         llm_calls = agent_result.get("steps")
@@ -404,6 +392,9 @@ def solve_task(
     if gold_error_type is not None:
         record["gold_error_type"] = gold_error_type
         record["gold_error_message"] = gold_error_message
+    if run_id:
+        record["run_id"] = run_id
+        record["thread_id"] = thread_id or run_id
 
     if harness in {"v1", "v2"}:
         record.update(
@@ -425,6 +416,20 @@ def solve_task(
                     int(agent_result.get("retry_count") or 0) > 0
                     and agent_result.get("workflow_passed") is True
                 ),
+                "approval_decision": agent_result.get("approval_decision") or "",
+                "resumed": resumed,
+                "resume_count": resume_count,
+                # Counters below are from the last container only; each resume
+                # starts a fresh sandbox, so they are not summed across sessions.
+                "sandbox_sessions": sandbox_sessions,
+                "retrieval_calls": int(agent_result.get("retrieval_calls") or 0),
+                "workflow_trace": list(agent_result.get("workflow_trace") or []),
+                "checkpoint_stages": list(
+                    agent_result.get("checkpoint_stages")
+                    or reached_checkpoint_stages(
+                        agent_result.get("workflow_trace") or []
+                    )
+                ),
             }
         )
     if harness == "v2":
@@ -433,7 +438,6 @@ def solve_task(
         record.update(
             {
                 "retrieval_mode": "hybrid",
-                "retrieval_calls": agent_result.get("retrieval_calls", 0),
                 "relevant_files": relevant,
                 "recall_at_5": recall_at_k(relevant, expected, k=5),
                 "embedder_name": embedder_name,
@@ -441,6 +445,447 @@ def solve_task(
                 "retrieve_query": agent_result.get("retrieve_query"),
             }
         )
+    return record
 
+
+def _paused_record(
+    *,
+    task_id: str,
+    harness: HarnessVersion,
+    session: RunSession,
+    session_path: Path,
+    agent_result: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "harness_version": harness,
+        "run_id": session.run_id,
+        "thread_id": session.thread_id,
+        "paused": True,
+        "status": "waiting_approval",
+        "termination": "waiting_approval",
+        "workflow_passed": False,
+        "session_path": str(session_path),
+        "approval_payload": agent_result.get("approval_payload") or {},
+        "approval_decision": "",
+        "resume_count": session.resume_count,
+        "model": session.model,
+        "analysis": agent_result.get("analysis", ""),
+        "plan": agent_result.get("plan", {}),
+        "verification": agent_result.get("test_result", {}),
+        "patch_evaluation": agent_result.get("patch_evaluation") or {},
+    }
+
+
+def _write_paused_session(
+    *,
+    run_id: str,
+    thread_id: str,
+    task_id: str,
+    harness: HarnessVersion,
+    model_name: str,
+    embedder_name: str,
+    query_mode: str,
+    repo_path: Path,
+    base_commit: str,
+    resume_count: int = 0,
+    sessions_dir: Path | None = None,
+    existing: RunSession | None = None,
+) -> tuple[RunSession, Path]:
+    if existing is not None:
+        session = update_session(
+            existing,
+            sessions_dir=sessions_dir,
+            status="paused",
+            resume_count=resume_count,
+        )
+    else:
+        session = RunSession(
+            run_id=run_id,
+            thread_id=thread_id,
+            task_id=task_id,
+            harness=harness,
+            model=model_name,
+            embedder_name=embedder_name,
+            query_mode=query_mode,
+            repo_path=str(repo_path),
+            base_commit=base_commit,
+            status="paused",
+            created_at=utc_now_iso(),
+            resume_count=resume_count,
+        )
+        save_session(session, sessions_dir=sessions_dir)
+    return session, session_path(run_id, sessions_dir=sessions_dir)
+
+
+def _invoke_checkpointed_harness(
+    *,
+    checkpoint_path: str | Path | None,
+    require_approval: bool,
+    thread_id: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    harness = kwargs["harness"]
+    with open_checkpointer(checkpoint_path) as saver:
+        graph = build_graph(
+            include_retrieve=harness == "v2",
+            checkpointer=saver,
+        )
+        return _run_harness(
+            graph=graph,
+            thread_id=thread_id,
+            require_approval=require_approval,
+            **kwargs,
+        )
+
+
+def _run_sandbox_cycle(
+    *,
+    repo_path: Path,
+    task_id: str,
+    task: dict[str, Any],
+    invoke,
+) -> tuple[dict[str, Any], dict[str, Any] | None, str | None, str | None, str | None, str | None, dict[str, Any]]:
+    """Enter one sandbox, invoke the harness, score gold unless the graph paused.
+
+    Returns ``(agent_result, gold, error_type, error_message, gold_error_type,
+    gold_error_message, sandbox_record)``.
+    """
+    agent_result = _empty_agent_result()
+    gold: dict[str, Any] | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    gold_error_type: str | None = None
+    gold_error_message: str | None = None
+    sandbox_record = _sandbox_fields(None)
+
+    try:
+        with SandboxRunner(repo_path, task_id=task_id) as sandbox:
+            try:
+                agent_result = invoke(sandbox)
+            except Exception as exc:
+                error_type = type(exc).__name__
+                error_message = str(exc)
+                agent_result = _empty_agent_result()
+
+            if error_type is None and not _waiting_approval(agent_result):
+                gold, gold_error_type, gold_error_message = _score_gold_or_error(
+                    repo_path, task, sandbox
+                )
+        sandbox_record = _sandbox_fields(sandbox.meta)
+    except Exception as exc:
+        if error_type is None:
+            error_type = type(exc).__name__
+            error_message = str(exc)
+        sandbox_record = _sandbox_fields(None, start_error=str(exc))
+        if gold is None:
+            gold = _failed_gold(
+                f"Error running gold test: sandbox unavailable: {type(exc).__name__}: {exc}"
+            )
+            gold_error_type = type(exc).__name__
+            gold_error_message = str(exc)
+
+    return (
+        agent_result,
+        gold,
+        error_type,
+        error_message,
+        gold_error_type,
+        gold_error_message,
+        sandbox_record,
+    )
+
+
+def solve_task(
+    task_id: str,
+    *,
+    model: str | None = None,
+    max_steps: int = MAX_AGENT_STEPS,
+    client=None,
+    harness_version: str = "v0",
+    embedder_name: str = "hashing",
+    query_mode: str = DEFAULT_QUERY_MODE,
+    progress=None,
+    interactive_recovery: bool = False,
+    feedback_provider=None,
+    require_approval: bool = False,
+    checkpoint: bool = False,
+    checkpoint_path: str | Path | None = None,
+    sessions_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Full harness cycle for one dataset task.
+
+    Flow: reset repo → enter one sandbox → run V0/V1/V2 → gold test → cleanup.
+    Gold scoring stays independent of workflow verification.
+    Sandbox startup or execution failures still produce a versioned run artifact.
+
+    ``require_approval`` implies checkpointing. On interrupt the function writes
+    a paused session under ``runs/sessions/`` and returns without a run JSON.
+    """
+    harness = _normalize_harness(harness_version)
+    if require_approval:
+        checkpoint = True
+    if checkpoint and harness == "v0":
+        raise ValueError("checkpoint and require_approval require harness v1 or v2")
+
+    task = get_task(task_id)
+    repo_path = resolve_repo_path(task)
+    model_name = model or default_model()
+    llm = client or create_client()
+    retrieve_query_mode = normalize_query_mode(query_mode)
+    provider = feedback_provider
+    if provider is None and interactive_recovery:
+        from agent.nodes.feedback import stdin_feedback_provider
+
+        provider = stdin_feedback_provider
+
+    reset_repo(repo_path, task["base_commit"])
+
+    run_id = new_run_id(task_id, harness) if checkpoint else None
+    thread_id = run_id
+
+    def invoke(sandbox):
+        kwargs = {
+            "harness": harness,
+            "client": llm,
+            "issue": task["issue"],
+            "repo_path": str(repo_path),
+            "test_command": task["test_command"],
+            "lint_command": str(task.get("lint_command") or ""),
+            "model": model_name,
+            "max_steps": max_steps,
+            "sandbox": sandbox,
+            "embedder_name": embedder_name,
+            "query_mode": retrieve_query_mode,
+            "progress": progress,
+            "feedback_provider": provider,
+        }
+        if checkpoint:
+            assert run_id is not None
+            return _invoke_checkpointed_harness(
+                checkpoint_path=checkpoint_path,
+                require_approval=require_approval,
+                thread_id=run_id,
+                **kwargs,
+            )
+        return _run_harness(**kwargs)
+
+    (
+        agent_result,
+        gold,
+        error_type,
+        error_message,
+        gold_error_type,
+        gold_error_message,
+        sandbox_record,
+    ) = _run_sandbox_cycle(
+        repo_path=repo_path,
+        task_id=task_id,
+        task=task,
+        invoke=invoke,
+    )
+
+    if error_type is None and _waiting_approval(agent_result) and run_id:
+        session, path = _write_paused_session(
+            run_id=run_id,
+            thread_id=run_id,
+            task_id=task_id,
+            harness=harness,
+            model_name=model_name,
+            embedder_name=embedder_name,
+            query_mode=retrieve_query_mode,
+            repo_path=repo_path,
+            base_commit=str(task["base_commit"]),
+            resume_count=0,
+            sessions_dir=sessions_dir,
+        )
+        return _paused_record(
+            task_id=task_id,
+            harness=harness,
+            session=session,
+            session_path=path,
+            agent_result=agent_result,
+        )
+
+    record = _build_run_record(
+        task_id=task_id,
+        task=task,
+        harness=harness,
+        repo_path=repo_path,
+        model_name=model_name,
+        retrieve_query_mode=retrieve_query_mode,
+        embedder_name=embedder_name,
+        agent_result=agent_result,
+        gold=gold,
+        error_type=error_type,
+        error_message=error_message,
+        gold_error_type=gold_error_type,
+        gold_error_message=gold_error_message,
+        sandbox_record=sandbox_record,
+        run_id=run_id,
+        thread_id=thread_id,
+        resumed=False,
+        resume_count=0,
+        sandbox_sessions=1,
+    )
     record["run_path"] = str(save_run(record))
     return record
+
+
+def resume_task(
+    run_id: str,
+    *,
+    decision: str,
+    feedback: str | None = None,
+    client=None,
+    max_steps: int = MAX_AGENT_STEPS,
+    progress=None,
+    feedback_provider=None,
+    checkpoint_path: str | Path | None = None,
+    sessions_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Finish a paused approval run. Never calls ``reset_repo``.
+
+    Loads the session, checks that HEAD is still ``base_commit`` with the
+    agent patch present, opens a fresh sandbox and a fresh SqliteSaver, then
+    resumes with ``Command(resume=...)``. Gold is scored only after the graph
+    finishes (including reject / needs_human). Sandbox counters are from this
+    container only; ``sandbox_sessions`` counts how many containers the run used.
+    """
+    session = load_session(run_id, sessions_dir=sessions_dir)
+    if session.status != "paused":
+        raise ValueError(f"session {run_id} is {session.status!r}, not paused")
+    harness = _normalize_harness(session.harness)
+    if harness == "v0":
+        raise ValueError("resume_task does not support harness v0")
+
+    task = get_task(session.task_id)
+    repo_path = Path(session.repo_path)
+    if not repo_path.is_dir():
+        raise FileNotFoundError(f"benchmark repo not found: {repo_path}")
+    verify_resume_worktree(repo_path, session.base_commit)
+
+    llm = client or create_client()
+    resume_count = session.resume_count + 1
+    sandbox_sessions = 1 + resume_count
+
+    def invoke(sandbox):
+        with open_checkpointer(checkpoint_path) as saver:
+            graph = build_graph(
+                include_retrieve=harness == "v2",
+                checkpointer=saver,
+            )
+            return resume_workflow(
+                graph=graph,
+                thread_id=session.thread_id,
+                client=llm,
+                repo_path=str(repo_path),
+                test_command=task["test_command"],
+                decision=decision,
+                feedback=feedback or "",
+                lint_command=str(task.get("lint_command") or ""),
+                model=session.model,
+                max_steps=max_steps,
+                sandbox=sandbox,
+                enable_search_code=harness == "v2",
+                embedder_name=session.embedder_name,
+                query_mode=session.query_mode,
+                progress=progress,
+                feedback_provider=feedback_provider,
+                require_approval=True,
+            )
+
+    (
+        agent_result,
+        gold,
+        error_type,
+        error_message,
+        gold_error_type,
+        gold_error_message,
+        sandbox_record,
+    ) = _run_sandbox_cycle(
+        repo_path=repo_path,
+        task_id=session.task_id,
+        task=task,
+        invoke=invoke,
+    )
+
+    if error_type is None and _waiting_approval(agent_result):
+        session, path = _write_paused_session(
+            run_id=session.run_id,
+            thread_id=session.thread_id,
+            task_id=session.task_id,
+            harness=harness,
+            model_name=session.model,
+            embedder_name=session.embedder_name,
+            query_mode=session.query_mode,
+            repo_path=repo_path,
+            base_commit=session.base_commit,
+            resume_count=resume_count,
+            sessions_dir=sessions_dir,
+            existing=session,
+        )
+        return _paused_record(
+            task_id=session.task_id,
+            harness=harness,
+            session=session,
+            session_path=path,
+            agent_result=agent_result,
+        )
+
+    update_session(
+        session,
+        sessions_dir=sessions_dir,
+        status="completed",
+        resume_count=resume_count,
+    )
+    record = _build_run_record(
+        task_id=session.task_id,
+        task=task,
+        harness=harness,
+        repo_path=repo_path,
+        model_name=session.model,
+        retrieve_query_mode=session.query_mode,
+        embedder_name=session.embedder_name,
+        agent_result=agent_result,
+        gold=gold,
+        error_type=error_type,
+        error_message=error_message,
+        gold_error_type=gold_error_type,
+        gold_error_message=gold_error_message,
+        sandbox_record=sandbox_record,
+        run_id=session.run_id,
+        thread_id=session.thread_id,
+        resumed=True,
+        resume_count=resume_count,
+        sandbox_sessions=sandbox_sessions,
+    )
+    record["run_path"] = str(save_run(record))
+    return record
+
+
+def load_review_payload(
+    run_id: str,
+    *,
+    checkpoint_path: str | Path | None = None,
+    sessions_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Rebuild the six-part review bundle from the durable checkpoint.
+
+    Session sidecars do not store the interrupt payload, so ``review`` after a
+    process kill reads ``AgentState`` from a fresh SqliteSaver.
+    """
+    session = load_session(run_id, sessions_dir=sessions_dir)
+    harness = _normalize_harness(session.harness)
+    with open_checkpointer(checkpoint_path) as saver:
+        graph = build_graph(
+            include_retrieve=harness == "v2",
+            checkpointer=saver,
+        )
+        snapshot = graph.get_state(
+            {"configurable": {"thread_id": session.thread_id}}
+        )
+    values = dict(getattr(snapshot, "values", None) or {})
+    if not values:
+        raise ValueError(f"no checkpoint state for {run_id}")
+    return review_payload(values)
