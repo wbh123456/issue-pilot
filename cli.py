@@ -11,6 +11,7 @@ Usage:
     python cli.py retrieve --split hard
     python cli.py report --split hard
     python cli.py report --split hard --latest-per-cell
+    python cli.py bench --split hard --harness v0,v1,v2 --n 1 --log
     python cli.py sandbox doctor
     python cli.py sandbox build
     python cli.py solve issue-001 --harness v1 --interactive-recovery
@@ -234,6 +235,68 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Print machine-readable report",
+    )
+
+    bench = sub.add_parser(
+        "bench",
+        help="Run a split × harness matrix (no approval / interactive-recovery)",
+    )
+    bench.add_argument(
+        "--split",
+        choices=("smoke", "hard"),
+        required=True,
+        help="Dataset split to run",
+    )
+    bench.add_argument(
+        "--harness",
+        default="v0,v1,v2",
+        help="Comma-separated harness versions (default: v0,v1,v2)",
+    )
+    bench.add_argument(
+        "--n",
+        type=int,
+        default=1,
+        help="Repeats per (task, harness) cell (default: 1)",
+    )
+    bench.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip a cell that already has n matching solve records",
+    )
+    bench.add_argument(
+        "--log",
+        nargs="?",
+        const="",
+        default=None,
+        help="Write a matrix log; optional path (default: runs/matrix-<stamp>.log)",
+    )
+    bench.add_argument(
+        "--model",
+        default=None,
+        help=f"Model id (default: {default_model()})",
+    )
+    bench.add_argument(
+        "--max-steps",
+        type=int,
+        default=MAX_AGENT_STEPS,
+        help=f"Max executor ReAct steps (default: {MAX_AGENT_STEPS})",
+    )
+    bench.add_argument(
+        "--embedder",
+        choices=("hashing", "fastembed"),
+        default="hashing",
+        help="V2 dense embedder (ignored by v0/v1)",
+    )
+    bench.add_argument(
+        "--query-mode",
+        choices=QUERY_MODES,
+        default=DEFAULT_QUERY_MODE,
+        help="V2 retrieve query (default: issue)",
+    )
+    bench.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Do not print live stage/tool progress",
     )
 
     sandbox = sub.add_parser(
@@ -524,6 +587,41 @@ def _print_report(report: dict) -> None:
         console.print(f"[dim]harness_git_sha={sha}[/dim]")
 
 
+def _print_bench(manifest: dict) -> None:
+    settings = manifest.get("settings") or {}
+    table = Table(title=f"Bench {settings.get('split') or '-'} n={settings.get('n')}")
+    table.add_column("Task")
+    table.add_column("Harness")
+    table.add_column("Status")
+    table.add_column("Success")
+    table.add_column("Run")
+    for cell in manifest.get("cells") or []:
+        if cell.get("skipped"):
+            status = "skip"
+        elif cell.get("error"):
+            status = "error"
+        elif cell.get("paused"):
+            status = "paused"
+        else:
+            status = "done"
+        success = cell.get("success")
+        success_s = "-" if success is None else str(success)
+        table.add_row(
+            str(cell.get("task_id") or "-"),
+            str(cell.get("harness_version") or "-"),
+            status,
+            success_s,
+            str(cell.get("run_path") or "-"),
+        )
+    console.print(table)
+    log_path = manifest.get("log_path")
+    manifest_path = manifest.get("manifest_path")
+    if log_path:
+        console.print(f"[dim]log={log_path}[/dim]")
+    if manifest_path:
+        console.print(f"[dim]manifest={manifest_path}[/dim]")
+
+
 def _print_doctor(report) -> None:
     table = Table(title="Sandbox doctor")
     table.add_column("Check")
@@ -707,6 +805,44 @@ def main(argv: list[str] | None = None) -> int:
             console.print_json(json.dumps(report))
         else:
             _print_report(report)
+        return 0
+
+    if args.command == "bench":
+        from eval.matrix import parse_harness_list, run_matrix
+
+        try:
+            harnesses = parse_harness_list(args.harness)
+        except ValueError as exc:
+            parser.error(str(exc))
+        if args.n < 1:
+            parser.error("--n must be >= 1")
+        console.print(
+            f"[cyan]Bench split={args.split} harness={','.join(harnesses)} "
+            f"n={args.n}...[/cyan]"
+        )
+        try:
+            manifest = run_matrix(
+                split=args.split,
+                harnesses=harnesses,
+                n=args.n,
+                skip_existing=args.skip_existing,
+                model=args.model,
+                max_steps=args.max_steps,
+                embedder_name=args.embedder,
+                query_mode=args.query_mode,
+                log_path=args.log or None,
+                progress=_progress_reporter(args),
+            )
+        except Exception as exc:
+            console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")
+            return 1
+        _print_bench(manifest)
+        cells = manifest.get("cells") or []
+        if any(cell.get("error") for cell in cells):
+            return 1
+        executed = [cell for cell in cells if not cell.get("skipped")]
+        if executed and not all(cell.get("success") for cell in executed):
+            return 2
         return 0
 
     if args.command == "sandbox":

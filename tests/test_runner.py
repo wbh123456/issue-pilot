@@ -1024,6 +1024,140 @@ class TestCLI:
         assert seen["base_commit"] == "deadbeef"
         assert seen["latest_per_cell"] is True
 
+    def test_bench_command_wires_matrix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_matrix(**kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return {
+                "stamp": "20260819T000000Z",
+                "log_path": "runs/matrix-20260819T000000Z.log",
+                "manifest_path": "runs/matrix-20260819T000000Z.json",
+                "settings": {"split": kwargs["split"], "n": kwargs["n"]},
+                "cells": [
+                    {
+                        "task_id": "issue-008",
+                        "harness_version": "v0",
+                        "skipped": False,
+                        "success": True,
+                        "run_path": "runs/issue-008-v0.json",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr("eval.matrix.run_matrix", fake_matrix)
+        monkeypatch.setattr(cli, "default_model", lambda: "fake-model")
+        code = cli.main(
+            [
+                "bench",
+                "--split",
+                "hard",
+                "--harness",
+                "v0,v2",
+                "--n",
+                "1",
+                "--skip-existing",
+                "--quiet",
+            ]
+        )
+        assert code == 0
+        assert seen["split"] == "hard"
+        assert seen["harnesses"] == ["v0", "v2"]
+        assert seen["n"] == 1
+        assert seen["skip_existing"] is True
+        assert seen["progress"] is None
+        assert "require_approval" not in seen
+        assert "interactive_recovery" not in seen
+
+    def test_bench_log_flag_does_not_require_a_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_matrix(**kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return {
+                "stamp": "x",
+                "log_path": "runs/matrix-x.log",
+                "manifest_path": "runs/matrix-x.json",
+                "settings": {"split": "hard", "n": 1},
+                "cells": [],
+            }
+
+        monkeypatch.setattr("eval.matrix.run_matrix", fake_matrix)
+        assert cli.main(["bench", "--split", "hard", "--log", "--quiet"]) == 0
+        assert seen["log_path"] is None
+
+    def test_bench_log_accepts_an_explicit_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_matrix(**kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return {
+                "stamp": "x",
+                "log_path": kwargs["log_path"],
+                "manifest_path": "runs/matrix-x.json",
+                "settings": {"split": "hard", "n": 1},
+                "cells": [],
+            }
+
+        monkeypatch.setattr("eval.matrix.run_matrix", fake_matrix)
+        assert (
+            cli.main(
+                ["bench", "--split", "hard", "--log", "runs/custom.log", "--quiet"]
+            )
+            == 0
+        )
+        assert seen["log_path"] == "runs/custom.log"
+
+    def test_bench_gold_fail_exits_two(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_matrix(**kwargs: Any) -> dict[str, Any]:
+            return {
+                "stamp": "x",
+                "log_path": "runs/x.log",
+                "manifest_path": "runs/x.json",
+                "settings": {"split": "hard", "n": 1},
+                "cells": [
+                    {
+                        "task_id": "issue-008",
+                        "harness_version": "v0",
+                        "skipped": False,
+                        "success": False,
+                        "run_path": "runs/fail.json",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr("eval.matrix.run_matrix", fake_matrix)
+        assert cli.main(["bench", "--split", "hard", "--quiet"]) == 2
+
+    def test_bench_cell_error_exits_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_matrix(**kwargs: Any) -> dict[str, Any]:
+            return {
+                "stamp": "x",
+                "log_path": "runs/x.log",
+                "manifest_path": "runs/x.json",
+                "settings": {"split": "hard", "n": 1},
+                "cells": [
+                    {
+                        "task_id": "issue-008",
+                        "harness_version": "v0",
+                        "skipped": False,
+                        "success": None,
+                        "error": "RuntimeError: boom",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr("eval.matrix.run_matrix", fake_matrix)
+        assert cli.main(["bench", "--split", "hard", "--quiet"]) == 1
+
+    def test_bench_rejects_bad_harness(self) -> None:
+        with pytest.raises(SystemExit):
+            cli.main(["bench", "--split", "hard", "--harness", "v9"])
+
     def test_sandbox_doctor_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class Report:
             ok = False
