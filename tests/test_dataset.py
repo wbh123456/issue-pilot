@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -20,14 +21,83 @@ from sandbox.runner import CommandResult
 
 BENCHMARK_ROOT = (HARNESS_ROOT / ".." / "issue-pilot-benchmark").resolve()
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-_LEAK_RE = re.compile(r"GOLD:|issue-00\d", re.IGNORECASE)
+_LEAK_RE = re.compile(r"GOLD:|issue-\d{3}", re.IGNORECASE)
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_HISTORICAL_LEAKS = frozenset({"coworker", "docs"})
+
+
+def _idents(text: str) -> set[str]:
+    return {match.group(0).lower() for match in _IDENT_RE.finditer(text)}
+
+
+def _def_names(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if not node.name.startswith("_"):
+                names.add(node.name.lower())
+    return names
+
+
+def _dict_keys(path: Path, target_names: frozenset[str]) -> set[str]:
+    if not path.is_file():
+        return set()
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    keys: set[str] = set()
+
+    def _take(name: str, value: ast.AST) -> None:
+        if name not in target_names or not isinstance(value, ast.Dict):
+            return
+        for key in value.keys:
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                keys.add(key.value.lower())
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    _take(target.id, node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.value is not None:
+                _take(node.target.id, node.value)
+    return keys
+
+
+def _sku_and_coupon_literals() -> set[str]:
+    """SKU and coupon codes — grep bait if they appear in issue text."""
+    names = set()
+    names.update(
+        _dict_keys(
+            BENCHMARK_ROOT / "app" / "inventory.py",
+            frozenset({"_DEFAULT_STOCK", "WAREHOUSE_BINS"}),
+        )
+    )
+    names.update(
+        _dict_keys(
+            BENCHMARK_ROOT / "app" / "pricing.py",
+            frozenset({"COUPONS"}),
+        )
+    )
+    return names
+
+
+def _forbidden_hard_idents(task: dict) -> set[str]:
+    forbidden = set(_HISTORICAL_LEAKS)
+    forbidden.update(_sku_and_coupon_literals())
+    for rel in task.get("expected_files") or []:
+        forbidden.add(Path(rel).stem.lower())
+        path = BENCHMARK_ROOT / rel
+        if path.is_file():
+            forbidden.update(_def_names(path))
+    return forbidden
 
 
 class TestDataset:
     def test_tasks_have_hidden_gold_and_split(self) -> None:
         tasks = load_dataset()
         ids = [t["id"] for t in tasks]
-        assert ids == [f"issue-{i:03d}" for i in range(1, 12)]
+        assert ids == [f"issue-{i:03d}" for i in range(1, 15)]
         splits = {t["split"] for t in tasks}
         assert splits == {"smoke", "hard"}
         for task in tasks:
@@ -55,10 +125,20 @@ class TestDataset:
         assert "GOLD" not in readme
 
     def test_hard_prompts_do_not_spell_the_fix(self) -> None:
-        tasks = {t["id"]: t for t in load_dataset()}
-        issue_008 = tasks["issue-008"]["issue"].lower()
-        assert "coworker" not in issue_008
-        assert "docs" not in issue_008
+        tasks = [task for task in load_dataset() if task.get("split") == "hard"]
+        assert tasks, "expected a hard split"
+        for task in tasks:
+            issue_idents = _idents(task["issue"])
+            leaked = sorted(issue_idents & _forbidden_hard_idents(task))
+            assert leaked == [], f"{task['id']} issue text leaks {leaked}"
+
+        eleven = next(task for task in tasks if task["id"] == "issue-011")
+        forbidden = _forbidden_hard_idents(eleven)
+        assert "save10" in forbidden
+        assert "widget" in forbidden
+        assert "pricing" in forbidden
+        assert "apply_coupon" in forbidden
+        assert "price" not in forbidden
 
         inventory = (BENCHMARK_ROOT / "app" / "inventory.py").read_text(
             encoding="utf-8"
@@ -66,6 +146,11 @@ class TestDataset:
         assert "IndexError" not in inventory
         assert "HTTP 500" not in inventory
         assert "Checkout is supposed to take stock through" not in inventory
+
+    def test_indexed_app_has_at_least_150_chunks(self) -> None:
+        from retrieval.chunker import chunk_repo
+
+        assert len(chunk_repo(BENCHMARK_ROOT)) >= 150
 
 
 class TestGoldStaging:

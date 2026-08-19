@@ -1,8 +1,11 @@
 """Hidden gold test for issue-010 — evaluator only."""
 
+from datetime import datetime, timedelta, timezone
+
+import jwt
 from fastapi.testclient import TestClient
 
-from app import users
+from app import auth, users
 from app.main import app
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -41,3 +44,18 @@ def test_promote_takes_effect_without_relogin():
         headers={"Authorization": f"Bearer {bob_token}"},
     )
     assert denied.status_code == 403
+
+    forged = jwt.encode(
+        {
+            "user_id": 3,
+            "role": "admin",
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        },
+        auth.SECRET,
+        algorithm=auth.ALGO,
+    )
+    spoofed = client.post(
+        "/users/1/promote",
+        headers={"Authorization": f"Bearer {forged}"},
+    )
+    assert spoofed.status_code == 403
