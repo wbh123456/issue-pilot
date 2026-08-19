@@ -1,0 +1,177 @@
+{
+  "task_id": "issue-017",
+  "split": "ablation",
+  "issue": "I bought a download-only title and still paid for delivery.",
+  "base_commit": "f7dbd4000d94dc5aab3835698dc3cb3bbd3eabc7",
+  "expected_files": [
+    "app/catalog.py",
+    "app/shipping.py"
+  ],
+  "k": 5,
+  "embedder": "HashingEmbedder",
+  "query": "I bought a download-only title and still paid for delivery.",
+  "query_mode": "issue",
+  "chunk_count": 248,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/catalog.py",
+        "app/main.py",
+        "app/shipping.py",
+        "app/campaigns.py",
+        "app/webhooks.py"
+      ],
+      "recall_at_k": 1.0,
+      "tokens": [
+        "bought",
+        "download",
+        "only",
+        "title",
+        "still",
+        "paid",
+        "delivery"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/catalog.py",
+        "app/webhooks.py",
+        "app/main.py",
+        "app/inventory.py",
+        "app/notifications.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/catalog.py",
+          "symbol": "catalog",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 24
+        },
+        {
+          "path": "app/webhooks.py",
+          "symbol": "last_delivery",
+          "type": "function",
+          "start_line": 70,
+          "end_line": 73
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "delivery_quote",
+          "type": "function",
+          "start_line": 161,
+          "end_line": 166
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        },
+        {
+          "path": "app/notifications.py",
+          "symbol": "notifications",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 26
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/catalog.py",
+        "app/fulfillment.py",
+        "app/settings.py",
+        "app/webhooks.py",
+        "app/campaigns.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/catalog.py",
+          "symbol": "CatalogEntry",
+          "type": "class",
+          "start_line": 6,
+          "end_line": 17
+        },
+        {
+          "path": "app/fulfillment.py",
+          "symbol": "PickJob",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 24
+        },
+        {
+          "path": "app/settings.py",
+          "symbol": "FeatureFlag",
+          "type": "class",
+          "start_line": 19,
+          "end_line": 31
+        },
+        {
+          "path": "app/webhooks.py",
+          "symbol": "Endpoint",
+          "type": "class",
+          "start_line": 12,
+          "end_line": 22
+        },
+        {
+          "path": "app/campaigns.py",
+          "symbol": "Campaign",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 18
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/catalog.py",
+        "app/audit.py",
+        "app/campaigns.py",
+        "app/webhooks.py",
+        "app/inventory.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/catalog.py",
+          "symbol": "CatalogEntry",
+          "type": "class",
+          "start_line": 6,
+          "end_line": 17
+        },
+        {
+          "path": "app/audit.py",
+          "symbol": "latest_for_order",
+          "type": "function",
+          "start_line": 54,
+          "end_line": 58
+        },
+        {
+          "path": "app/campaigns.py",
+          "symbol": "featured_titles",
+          "type": "function",
+          "start_line": 52,
+          "end_line": 53
+        },
+        {
+          "path": "app/webhooks.py",
+          "symbol": "last_delivery",
+          "type": "function",
+          "start_line": 70,
+          "end_line": 73
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        }
+      ]
+    }
+  }
+}

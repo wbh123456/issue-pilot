@@ -85,8 +85,10 @@ def _layer1_results(
         _cmd(["ruff", "check", "app"], ok=ruff_ok),
     ]
     if not ruff_ok:
-        results.append(_cmd(["ruff", "check", "--fix", "app"], ok=False))
-        results.append(_cmd(["ruff", "check", "app"], ok=False))
+        results.extend(_git_results(patch_ok=patch_ok))
+        if patch_ok:
+            results.append(_cmd(["ruff", "check", "--fix", "app/x.py"], ok=False))
+            results.append(_cmd(["ruff", "check", "app"], ok=False))
     results.extend(_git_results(patch_ok=patch_ok))
     return results
 
@@ -143,12 +145,22 @@ class TestVerifyCombinations:
             assert result["ruff_autofixed"] is False
             assert sandbox.calls[2][:2] == ["git", "diff"]
             assert sandbox.calls[3][:2] == ["git", "status"]
-        else:
+        elif patch_ok:
             assert result["ruff_autofixed"] is True
-            assert "--fix" in sandbox.calls[2]
-            assert sandbox.calls[3][0] == "ruff"
+            assert sandbox.calls[2][:2] == ["git", "diff"]
+            assert sandbox.calls[3][:2] == ["git", "status"]
+            assert "--fix" in sandbox.calls[4]
+            assert "app/x.py" in sandbox.calls[4]
+            assert "app" not in sandbox.calls[4][2:] or sandbox.calls[4][-1] == "app/x.py"
+            assert sandbox.calls[5][0] == "ruff"
+            assert "--fix" not in sandbox.calls[5]
+            assert sandbox.calls[6][:2] == ["git", "diff"]
+            assert sandbox.calls[7][:2] == ["git", "status"]
+        else:
+            assert result["ruff_autofixed"] is False
+            assert all("--fix" not in call for call in sandbox.calls)
+            assert sandbox.calls[2][:2] == ["git", "diff"]
             assert sandbox.calls[4][:2] == ["git", "diff"]
-            assert sandbox.calls[5][:2] == ["git", "status"]
 
 
 class TestVerifyFailClosed:
@@ -284,7 +296,8 @@ class TestRuffAutofix:
             [
                 _cmd(["pytest", "-q"], ok=True),
                 _cmd(["ruff", "check", "app"], ok=False),
-                _cmd(["ruff", "check", "--fix", "app"], ok=True),
+                *_git_results(patch_ok=True),
+                _cmd(["ruff", "check", "--fix", "app/x.py"], ok=True),
                 _cmd(["ruff", "check", "app"], ok=True),
                 *_git_results(patch_ok=True),
             ]
@@ -297,9 +310,10 @@ class TestRuffAutofix:
         assert result["ruff_passed"] is True
         assert result["ruff_autofixed"] is True
         assert result["deterministic_pass"] is True
-        assert "--fix" in sandbox.calls[2]
-        assert sandbox.calls[3][0] == "ruff"
-        assert "--fix" not in sandbox.calls[3]
+        assert "--fix" in sandbox.calls[4]
+        assert "app/x.py" in sandbox.calls[4]
+        assert sandbox.calls[5][0] == "ruff"
+        assert "--fix" not in sandbox.calls[5]
 
     def test_does_not_fix_when_first_check_passes(self, tmp_path: Path) -> None:
         sandbox = ScriptedSandbox(
@@ -316,6 +330,54 @@ class TestRuffAutofix:
         assert out["test_result"]["ruff_autofixed"] is False
         assert all("--fix" not in call for call in sandbox.calls)
         assert len(sandbox.calls) == 4
+
+    def test_fix_targets_changed_files_not_app_package(self, tmp_path: Path) -> None:
+        sandbox = ScriptedSandbox(
+            [
+                _cmd(["pytest", "-q"], ok=True),
+                _cmd(["ruff", "check", "app"], ok=False),
+                CommandResult(["git", "diff", "HEAD"], 0, "+fixed\n", ""),
+                CommandResult(
+                    ["git", "status", "--short"],
+                    0,
+                    " M app/orders.py\n",
+                    "",
+                ),
+                _cmd(["ruff", "check", "--fix", "app/orders.py"], ok=True),
+                _cmd(["ruff", "check", "app"], ok=True),
+                CommandResult(["git", "diff", "HEAD"], 0, "+fixed\n", ""),
+                CommandResult(["git", "status", "--short"], 0, " M app/orders.py\n", ""),
+            ]
+        )
+        out = deterministic_verify(
+            initial_state("bug"),
+            _config(tmp_path, sandbox),
+        )
+        assert out["test_result"]["ruff_autofixed"] is True
+        fix_argv = sandbox.calls[4]
+        assert "--fix" in fix_argv
+        assert "app/orders.py" in fix_argv
+        assert fix_argv[-1] == "app/orders.py"
+        assert "app" not in fix_argv[fix_argv.index("--fix") + 1 : -1]
+
+    def test_skips_fix_when_patch_has_no_python(self, tmp_path: Path) -> None:
+        sandbox = ScriptedSandbox(
+            [
+                _cmd(["pytest", "-q"], ok=True),
+                _cmd(["ruff", "check", "app"], ok=False),
+                CommandResult(["git", "diff", "HEAD"], 0, "", ""),
+                CommandResult(["git", "status", "--short"], 0, " M README.md\n", ""),
+                CommandResult(["git", "diff", "HEAD"], 0, "", ""),
+                CommandResult(["git", "status", "--short"], 0, " M README.md\n", ""),
+            ]
+        )
+        out = deterministic_verify(
+            initial_state("bug"),
+            _config(tmp_path, sandbox),
+        )
+        assert out["test_result"]["ruff_autofixed"] is False
+        assert out["test_result"]["ruff_passed"] is False
+        assert all("--fix" not in call for call in sandbox.calls)
 
     def test_skips_duplicate_exe_ignores(self, tmp_path: Path) -> None:
         sandbox = ScriptedSandbox(

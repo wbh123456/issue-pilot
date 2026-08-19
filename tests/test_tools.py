@@ -20,6 +20,7 @@ from agent.tools import (
     run_tests,
     search_code,
 )
+from agent.tools.schema import SEARCH_CODE_TOOL
 from agent.tools._sandbox import MAX_TOOL_OUTPUT, truncate_output
 from eval.repository import find_host_git
 from harness.permissions import validate_command
@@ -181,6 +182,12 @@ class TestSearchCode:
         assert "search_code" not in names
         assert V2_TOOLS is not TOOLS
         assert _tool_names(V2_TOOLS) == [*names, "search_code"]
+
+    def test_description_is_a_starting_locator(self) -> None:
+        desc = SEARCH_CODE_TOOL["function"]["description"].lower()
+        assert "start here" in desc
+        assert "prefer this over grep_code" in desc
+        assert "literal grep misses" not in desc
 
     def test_disabled_by_default(self, repo: Path) -> None:
         out = execute_tool(

@@ -1,0 +1,703 @@
+{
+  "task_id": "issue-017",
+  "harness_version": "v2",
+  "difficulty": "hard",
+  "split": "ablation",
+  "issue": "I bought a download-only title and still paid for delivery.",
+  "base_commit": "f7dbd4000d94dc5aab3835698dc3cb3bbd3eabc7",
+  "repo_path": "C:\\Users\\Aaron\\issue-pilot-benchmark",
+  "expected_files": [
+    "app/catalog.py",
+    "app/shipping.py"
+  ],
+  "model": "deepseek-v4-flash",
+  "temperature": 0,
+  "harness_git_sha": "5192e8b9349580385eb9136cc8cb15419ab09353",
+  "benchmark_spec_sha": "eb78bbfb527460b18088d72214d1674cd1b93278c3501efa9c1bf110f17574be",
+  "patch_diff": "diff --git a/app/catalog.py b/app/catalog.py\nindex 0b77b65..a1f5274 100644\n--- a/app/catalog.py\n+++ b/app/catalog.py\n@@ -64,7 +64,9 @@ def describe_items(items: list[dict]) -> list[str]:\n \n \n def digital_only(items: list[dict]) -> bool:\n-    return False\n+    if not items:\n+        return False\n+    return all(not get_entry(str(item.get(\"sku\") or \"widget\")).is_physical() for item in items)\n \n \n def reset_store() -> None:\ndiff --git a/app/shipping.py b/app/shipping.py\nindex e1cb3b3..3a05fbd 100644\n--- a/app/shipping.py\n+++ b/app/shipping.py\n@@ -44,6 +44,8 @@ def weight_surcharge(weight_g: int) -> float:\n \n \n def quote_shipment(items: list[dict], zone: str | None = None) -> float:\n+    if catalog.digital_only(items):\n+        return 0.0\n     postage = base_postage(zone)\n     postage += weight_surcharge(catalog.line_weight(items))\n     return round(postage, 2)\n",
+  "success": true,
+  "gold_test": {
+    "command": "pytest tests/_gold/test_issue_017.py::test_download_only_title_is_not_billed_for_delivery -q",
+    "exit_code": 0,
+    "passed": true,
+    "output": "exit_code=0\ncommand: pytest tests/_gold/test_issue_017.py::test_download_only_title_is_not_billed_for_delivery -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 1.63s"
+  },
+  "tool_call_count": 49,
+  "file_reads": 23,
+  "steps": 28,
+  "llm_calls": 33,
+  "tokens": 242328,
+  "prompt_tokens": 216582,
+  "completion_tokens": 25746,
+  "estimated_cost": null,
+  "latency": 294.66809310007375,
+  "termination": "needs_human",
+  "final_answer": "",
+  "trajectory": [
+    {
+      "step": 1,
+      "tool_call_id": "call_00_zeqGh2RRSAbgxHuC7vLT8704",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_aD2vtg9fdEfK13DCgEu32479",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/catalog.py"
+      },
+      "result": "\"\"\"SKU metadata and merchandising helpers.\"\"\"\n\nfrom __future__ import annotations\n\n\nclass CatalogEntry:\n    def __init__(self, sku: str, title: str, shippable: bool, weight_g: int) -> None:\n        self.sku = sku\n        self.title = title\n        self.shippable = shippable\n        self.weight_g = weight_g\n\n    def label(self) -> str:\n        return f\"{self.title} ({self.sku})\"\n\n    def is_physical(self) -> bool:\n        return self.shippable and self.weight_g > 0\n\n\n_ENTRIES: dict[str, CatalogEntry] = {\n    \"widget\": CatalogEntry(\"widget\", \"Standard widget\", True, 250),\n    \"gadget\": CatalogEntry(\"gadget\", \"Standard gadget\", True, 400),\n    \"ebook\": CatalogEntry(\"ebook\", \"Download title\", False, 0),\n}\n\n\ndef get_entry(sku: str) -> CatalogEntry:\n    return _ENTRIES.get(sku) or CatalogEntry(sku, sku, True, 100)\n\n\ndef title_for(sku: str) -> str:\n    return get_entry(sku).title\n\n\ndef is_shippable(sku: str) -> bool:\n    return get_entry(sku).is_physical()\n\n\ndef weight_grams(sku: str) -> int:\n    return int(get_entry(sku).weight_g)\n\n\ndef register_entry(sku: str, title: str, shippable: bool = True, weight_g: int = 100) -> CatalogEntry:\n    entry = CatalogEntry(sku, title, shippable, weight_g)\n    _ENTRIES[sku] = entry\n    return entry\n\n\ndef known_skus() -> list[str]:\n    return sorted(_ENTRIES)\n\n\ndef line_weight(items: list[dict]) -> int:\n    total = 0\n    for item in items:\n        sku = str(item.get(\"sku\") or \"widget\")\n        qty = int(item.get(\"qty\", 1) or 1)\n        total += weight_grams(sku) * max(qty, 0)\n    return total\n\n\ndef describe_items(items: list[dict]) -> list[str]:\n    return [title_for(str(item.get(\"sku\") or \"widget\")) for item in items]\n\n\ndef digital_only(items: list[dict]) -> bool:\n    return False\n\n\ndef reset_store() -> None:\n    _ENTRIES.clear()\n    _ENTRIES[\"widget\"] = CatalogEntry(\"widget\", \"Standard widget\", True, 250)\n    _ENTRIES[\"gadget\"] = CatalogEntry(\"gadget\", \"Standard gadget\", True, 400)\n    _ENTRIES[\"ebook\"] = CatalogEntry(\"ebook\", \"Download title\", False, 0)\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_lCGssfSGoFoWsE5vXBSk3304",
+      "tool": "list_files",
+      "arguments": {
+        "path": "app"
+      },
+      "result": "app/__init__.py\napp/audit.py\napp/auth.py\napp/calculator.py\napp/campaigns.py\napp/catalog.py\napp/fulfillment.py\napp/inventory.py\napp/ledger.py\napp/loyalty.py\napp/main.py\napp/notifications.py\napp/orders.py\napp/payments.py\napp/pricing.py\napp/reports.py\napp/settings.py\napp/shipping.py\napp/support.py\napp/tax.py\napp/users.py\napp/validators.py\napp/webhooks.py"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_zbyn8yZUZf4qvNLPODMr2355",
+      "tool": "list_files",
+      "arguments": {
+        "path": "tests"
+      },
+      "result": "tests/__init__.py\ntests/test_activity_after_cancel.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_download_delivery.py\ntests/test_inventory_orders.py\ntests/test_late_checkout_confirmation.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_out_of_region_surcharge.py\ntests/test_receipt_destination.py\ntests/test_sales_summary.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_ET_jbtvrJxXUWLz3j5zSzh84707",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/shipping.py"
+      },
+      "result": "\"\"\"Outbound shipping quotes and zone tables.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import catalog, settings\n\n\nclass Address:\n    def __init__(self, line: str, zone: str | None = None) -> None:\n        self.line = line\n        self.zone = zone or settings.default_zone()\n\n    def normalized(self) -> str:\n        return self.line.strip()\n\n    def is_complete(self) -> bool:\n        return bool(self.normalized())\n\n\n_ZONE_RATES: dict[str, float] = {\n    \"domestic\": 4.0,\n    \"express\": 12.0,\n    \"intl\": 18.0,\n}\n\n\ndef zone_rate(zone: str) -> float:\n    return float(_ZONE_RATES.get(zone, _ZONE_RATES[\"domestic\"]))\n\n\ndef quote_zone(zone: str | None = None) -> str:\n    return zone or settings.default_zone()\n\n\ndef base_postage(zone: str | None = None) -> float:\n    return zone_rate(quote_zone(zone))\n\n\ndef weight_surcharge(weight_g: int) -> float:\n    if weight_g <= 0:\n        return 0.0\n    extra = max(weight_g - 250, 0)\n    return round(extra / 250.0 * 1.5, 2)\n\n\ndef quote_shipment(items: list[dict], zone: str | None = None) -> float:\n    postage = base_postage(zone)\n    postage += weight_surcharge(catalog.line_weight(items))\n    return round(postage, 2)\n\n\ndef can_ship(items: list[dict]) -> bool:\n    return not catalog.digital_only(items)\n\n\ndef destination_ok(address: Address) -> bool:\n    return address.is_complete()\n\n\ndef format_label(address: Address, items: list[dict]) -> str:\n    titles = \", \".join(catalog.describe_items(items))\n    return f\"{address.normalized()} / {quote_zone(address.zone)} / {titles}\"\n\n\ndef estimate_days(zone: str | None = None) -> int:\n    chosen = quote_zone(zone)\n    if chosen == \"express\":\n        return 1\n    if chosen == \"intl\":\n        return 7\n    return 3\n\n\ndef reset_store() -> None:\n    _ZONE_RATES[\"domestic\"] = 4.0\n    _ZONE_RATES[\"express\"] = 12.0\n    _ZONE_RATES[\"intl\"] = 18.0\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_01_ET_rbMfknFmoaEfnlK2n3C73075",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_download_delivery.py"
+      },
+      "result": "\"\"\"A download-only title should not be billed for delivery.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app import catalog, shipping\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef test_download_only_title_has_no_delivery_charge():\n    items = [{\"sku\": \"ebook\", \"qty\": 1}]\n    assert catalog.digital_only(items) is True\n    assert shipping.quote_shipment(items) == 0.0\n    quoted = client.get(\"/quotes/delivery\", params={\"sku\": \"ebook\"})\n    assert quoted.status_code == 200\n    assert quoted.json()[\"postage\"] == 0.0\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_oAPbrAZ9LYdjBf7CS7HF0939",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import (\n    auth,\n    calculator,\n    inventory,\n    orders,\n    reports,\n    users,\n    validators,\n)\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\nclass EmailBody(BaseModel):\n    email: str\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n\n\n@app.patch(\"/users/me/email\")\ndef change_email_endpoint(body: EmailBody, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return users.change_email(user_id, body.email)\n\n\n@app.get(\"/notifications/inbox\")\ndef inbox_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    from app import notifications\n\n    return {\"messages\": notifications.list_messages(user_id)}\n\n\n@app.get(\"/audit/events\")\ndef audit_events_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    from app import audit\n\n    return {\"events\": audit.events_for_order(order_id)}\n\n\n@app.get(\"/reports/sales\")\ndef sales_report_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    if users.get_user(user_id).get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return reports.build_snapshot()\n\n\n@app.get(\"/quotes/surcharge\")\ndef surcharge_quote(amount: float, region: str = \"home\") -> dict:\n    from app import tax\n\n    return {\n        \"amount\": amount,\n        \"region\": region,\n        \"surcharge\": (\n            tax.away_levy(amount)\n            if region == \"remote\"\n            else tax.tax_on(amount, region)\n        ),\n    }\n\n\n@app.get(\"/quotes/delivery\")\ndef delivery_quote(sku: str, qty: int = 1, zone: str | None = None) -> dict:\n    from app import shipping\n\n    items = [{\"sku\": sku, \"qty\": qty}]\n    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_01_G7lQUiJrHiJxwnfNU5j56473",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "quote_shipment"
+      },
+      "result": "app/fulfillment.py:55:    return shipping.quote_shipment(items)\napp/main.py:166:    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\napp/shipping.py:46:def quote_shipment(items: list[dict], zone: str | None = None) -> float:\ntests/test_download_delivery.py:14:    assert shipping.quote_shipment(items) == 0.0"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_6a3FbHwW9Ji8DLc69ZGT3797",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/fulfillment.py"
+      },
+      "result": "\"\"\"Pick, pack, and dispatch helpers for physical lines.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import catalog, shipping\n\n\nclass PickJob:\n    def __init__(self, order_id: int, sku: str, qty: int) -> None:\n        self.order_id = order_id\n        self.sku = sku\n        self.qty = qty\n        self.packed = False\n\n    def mark_packed(self) -> None:\n        self.packed = True\n\n    def as_dict(self) -> dict:\n        return {\n            \"order_id\": self.order_id,\n            \"sku\": self.sku,\n            \"qty\": self.qty,\n            \"packed\": self.packed,\n        }\n\n\n_JOBS: list[PickJob] = []\n\n\ndef plan_picks(order_id: int, items: list[dict]) -> list[dict]:\n    jobs: list[dict] = []\n    for item in items:\n        sku = str(item.get(\"sku\") or \"widget\")\n        if not catalog.is_shippable(sku):\n            continue\n        job = PickJob(order_id, sku, int(item.get(\"qty\", 1) or 1))\n        _JOBS.append(job)\n        jobs.append(job.as_dict())\n    return jobs\n\n\ndef pack_next() -> dict | None:\n    for job in _JOBS:\n        if not job.packed:\n            job.mark_packed()\n            return job.as_dict()\n    return None\n\n\ndef pending_count() -> int:\n    return sum(1 for job in _JOBS if not job.packed)\n\n\ndef postage_for(items: list[dict]) -> float:\n    return shipping.quote_shipment(items)\n\n\ndef jobs_for(order_id: int) -> list[dict]:\n    return [job.as_dict() for job in _JOBS if job.order_id == order_id]\n\n\ndef reset_store() -> None:\n    _JOBS.clear()\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_01_Ro91KnRcwd6Dx3Db07Gt5750",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    _after_create(user_id, order)\n    return order\n\n\ndef _after_create(user_id: int, order: dict) -> None:\n    from app import audit, fulfillment, ledger, loyalty, notifications, webhooks\n\n    audit.record_sale(user_id, int(order[\"id\"]), float(order[\"total\"]))\n    notifications.dispatch_receipt(user_id, int(order[\"id\"]))\n    ledger.record_capture(user_id, float(order[\"total\"]), f\"order:{order['id']}\")\n    loyalty.accrue(user_id, float(order[\"total\"]))\n    fulfillment.plan_picks(int(order[\"id\"]), list(order.get(\"items\") or []))\n    webhooks.queue_delivery(\"order.created\", {\"id\": order[\"id\"], \"user_id\": user_id})\n\n\ndef refund_order(order_id: int) -> dict:\n    from app import audit, ledger\n\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    audit.record_sale(order[\"user_id\"], order_id, float(order[\"total\"]))\n    ledger.record_void(order[\"user_id\"], float(order[\"total\"]), f\"order:{order_id}\")\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef list_orders() -> list[dict]:\n    return list(_ORDERS)\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    from app import (\n        audit,\n        campaigns,\n        catalog,\n        fulfillment,\n        ledger,\n        loyalty,\n        notifications,\n        settings,\n        shipping,\n        support,\n        tax,\n        webhooks,\n    )\n\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n    audit.reset_store()\n    notifications.reset_store()\n    ledger.reset_store()\n    loyalty.reset_store()\n    fulfillment.reset_store()\n    webhooks.reset_store()\n    campaigns.reset_store()\n    catalog.reset_store()\n    settings.reset_store()\n    shipping.reset_store()\n    support.reset_store()\n    tax.reset_store()\n"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_fuLZBwpEsViUeTUYuYtk2334",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "digital_only"
+      },
+      "result": "app/catalog.py:66:def digital_only(items: list[dict]) -> bool:\napp/shipping.py:53:    return not catalog.digital_only(items)\ntests/test_download_delivery.py:13:    assert catalog.digital_only(items) is True"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_01_dOG0quLIEFLrgZSdm2J10155",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "can_ship"
+      },
+      "result": "app/shipping.py:52:def can_ship(items: list[dict]) -> bool:"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_Tc1NS3jSkE82A3ntiivZ9754",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/catalog.py",
+        "old_str": "def digital_only(items: list[dict]) -> bool:\n    return False",
+        "new_str": "def digital_only(items: list[dict]) -> bool:\n    if not items:\n        return False\n    return all(not get_entry(str(item.get(\"sku\") or \"widget\")).is_physical() for item in items)"
+      },
+      "result": "Updated app/catalog.py (61 -> 179 chars)"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_tCDcc14SGxKfS1EoNaSO6791",
+      "tool": "edit_file",
+      "arguments": {
+        "new_str": "def quote_shipment(items: list[dict], zone: str | None = None) -> float:\n    if catalog.digital_only(items):\n        return 0.0\n    postage = base_postage(zone)\n    postage += weight_surcharge(catalog.line_weight(items))\n    return round(postage, 2)",
+        "old_str": "def quote_shipment(items: list[dict], zone: str | None = None) -> float:\n    postage = base_postage(zone)\n    postage += weight_surcharge(catalog.line_weight(items))\n    return round(postage, 2)",
+        "path": "app/shipping.py"
+      },
+      "result": "Updated app/shipping.py (194 -> 249 chars)"
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_00_ET_mzlMe1fiWl4uQbQBJWNF2231",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_download_delivery.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 1.01s"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_00_x9Yx0CVPSiDo4fTetsn06663",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_download_delivery.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 1.12s"
+    },
+    {
+      "step": 11,
+      "tool_call_id": "call_00_0NqUy0aU8Gq6tplSBIVa9815",
+      "tool": "run_tests",
+      "arguments": {
+        "__run_all": true
+      },
+      "result": "exit_code=0\ncommand: pytest tests/test_download_delivery.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 1.05s"
+    },
+    {
+      "step": 12,
+      "tool_call_id": "call_00_Q6nQT8Wj9KDnab5HN4zx9367",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "--- status ---\nM app/catalog.py\n M app/shipping.py\n--- diff ---\ndiff --git a/app/catalog.py b/app/catalog.py\nindex 0b77b65..a1f5274 100644\n--- a/app/catalog.py\n+++ b/app/catalog.py\n@@ -64,7 +64,9 @@ def describe_items(items: list[dict]) -> list[str]:\n \n \n def digital_only(items: list[dict]) -> bool:\n-    return False\n+    if not items:\n+        return False\n+    return all(not get_entry(str(item.get(\"sku\") or \"widget\")).is_physical() for item in items)\n \n \n def reset_store() -> None:\ndiff --git a/app/shipping.py b/app/shipping.py\nindex e1cb3b3..3a05fbd 100644\n--- a/app/shipping.py\n+++ b/app/shipping.py\n@@ -44,6 +44,8 @@ def weight_surcharge(weight_g: int) -> float:\n \n \n def quote_shipment(items: list[dict], zone: str | None = None) -> float:\n+    if catalog.digital_only(items):\n+        return 0.0\n     postage = base_postage(zone)\n     postage += weight_surcharge(catalog.line_weight(items))\n     return round(postage, 2)"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_00_FwIlLa0cOVBEKEKwkgYr3031",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_Gi9I8RY4LZX9ddUdTlq23115",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/catalog.py"
+      },
+      "result": "\"\"\"SKU metadata and merchandising helpers.\"\"\"\n\nfrom __future__ import annotations\n\n\nclass CatalogEntry:\n    def __init__(self, sku: str, title: str, shippable: bool, weight_g: int) -> None:\n        self.sku = sku\n        self.title = title\n        self.shippable = shippable\n        self.weight_g = weight_g\n\n    def label(self) -> str:\n        return f\"{self.title} ({self.sku})\"\n\n    def is_physical(self) -> bool:\n        return self.shippable and self.weight_g > 0\n\n\n_ENTRIES: dict[str, CatalogEntry] = {\n    \"widget\": CatalogEntry(\"widget\", \"Standard widget\", True, 250),\n    \"gadget\": CatalogEntry(\"gadget\", \"Standard gadget\", True, 400),\n    \"ebook\": CatalogEntry(\"ebook\", \"Download title\", False, 0),\n}\n\n\ndef get_entry(sku: str) -> CatalogEntry:\n    return _ENTRIES.get(sku) or CatalogEntry(sku, sku, True, 100)\n\n\ndef title_for(sku: str) -> str:\n    return get_entry(sku).title\n\n\ndef is_shippable(sku: str) -> bool:\n    return get_entry(sku).is_physical()\n\n\ndef weight_grams(sku: str) -> int:\n    return int(get_entry(sku).weight_g)\n\n\ndef register_entry(sku: str, title: str, shippable: bool = True, weight_g: int = 100) -> CatalogEntry:\n    entry = CatalogEntry(sku, title, shippable, weight_g)\n    _ENTRIES[sku] = entry\n    return entry\n\n\ndef known_skus() -> list[str]:\n    return sorted(_ENTRIES)\n\n\ndef line_weight(items: list[dict]) -> int:\n    total = 0\n    for item in items:\n        sku = str(item.get(\"sku\") or \"widget\")\n        qty = int(item.get(\"qty\", 1) or 1)\n        total += weight_grams(sku) * max(qty, 0)\n    return total\n\n\ndef describe_items(items: list[dict]) -> list[str]:\n    return [title_for(str(item.get(\"sku\") or \"widget\")) for item in items]\n\n\ndef digital_only(items: list[dict]) -> bool:\n    if not items:\n        return False\n    return all(not get_entry(str(item.get(\"sku\") or \"widget\")).is_physical() for item in items)\n\n\ndef reset_store() -> None:\n    _ENTRIES.clear()\n    _ENTRIES[\"widget\"] = CatalogEntry(\"widget\", \"Standard widget\", True, 250)\n    _ENTRIES[\"gadget\"] = CatalogEntry(\"gadget\", \"Standard gadget\", True, 400)\n    _ENTRIES[\"ebook\"] = CatalogEntry(\"ebook\", \"Download title\", False, 0)\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_h75igUZlPlJAvkzX6vc74266",
+      "tool": "list_files",
+      "arguments": {
+        "path": "app"
+      },
+      "result": "app/__init__.py\napp/audit.py\napp/auth.py\napp/calculator.py\napp/campaigns.py\napp/catalog.py\napp/fulfillment.py\napp/inventory.py\napp/ledger.py\napp/loyalty.py\napp/main.py\napp/notifications.py\napp/orders.py\napp/payments.py\napp/pricing.py\napp/reports.py\napp/settings.py\napp/shipping.py\napp/support.py\napp/tax.py\napp/users.py\napp/validators.py\napp/webhooks.py"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_seXeeViOeNU6G5BZxmZc8112",
+      "tool": "list_files",
+      "arguments": {
+        "path": "tests"
+      },
+      "result": "tests/__init__.py\ntests/test_activity_after_cancel.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_download_delivery.py\ntests/test_inventory_orders.py\ntests/test_late_checkout_confirmation.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_out_of_region_surcharge.py\ntests/test_receipt_destination.py\ntests/test_sales_summary.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_ET_I09f22WMdG7s2q3ghKbv0762",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    _after_create(user_id, order)\n    return order\n\n\ndef _after_create(user_id: int, order: dict) -> None:\n    from app import audit, fulfillment, ledger, loyalty, notifications, webhooks\n\n    audit.record_sale(user_id, int(order[\"id\"]), float(order[\"total\"]))\n    notifications.dispatch_receipt(user_id, int(order[\"id\"]))\n    ledger.record_capture(user_id, float(order[\"total\"]), f\"order:{order['id']}\")\n    loyalty.accrue(user_id, float(order[\"total\"]))\n    fulfillment.plan_picks(int(order[\"id\"]), list(order.get(\"items\") or []))\n    webhooks.queue_delivery(\"order.created\", {\"id\": order[\"id\"], \"user_id\": user_id})\n\n\ndef refund_order(order_id: int) -> dict:\n    from app import audit, ledger\n\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    audit.record_sale(order[\"user_id\"], order_id, float(order[\"total\"]))\n    ledger.record_void(order[\"user_id\"], float(order[\"total\"]), f\"order:{order_id}\")\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef list_orders() -> list[dict]:\n    return list(_ORDERS)\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    from app import (\n        audit,\n        campaigns,\n        catalog,\n        fulfillment,\n        ledger,\n        loyalty,\n        notifications,\n        settings,\n        shipping,\n        support,\n        tax,\n        webhooks,\n    )\n\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n    audit.reset_store()\n    notifications.reset_store()\n    ledger.reset_store()\n    loyalty.reset_store()\n    fulfillment.reset_store()\n    webhooks.reset_store()\n    campaigns.reset_store()\n    catalog.reset_store()\n    settings.reset_store()\n    shipping.reset_store()\n    support.reset_store()\n    tax.reset_store()\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_01_ET_fXD06ivbCIrON2HHx0ZW1529",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/calculator.py"
+      },
+      "result": "\"\"\"Tiny numeric helpers.\"\"\"\n\nfrom collections.abc import Sequence\n\n\ndef sum_inclusive(start: int, end: int) -> int:\n    \"\"\"Sum integers from ``start`` to ``end`` inclusive.\"\"\"\n    return sum(range(start, end))\n\n\ndef average(nums: Sequence[float]) -> float:\n    if not nums:\n        raise ValueError(\"cannot average an empty sequence\")\n    return sum(nums) / len(nums)\n\n\ndef is_even(n: int) -> bool:\n    return n % 2 == 0\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_ANbG8DPRjCa3KPj20Fpo7501",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import (\n    auth,\n    calculator,\n    inventory,\n    orders,\n    reports,\n    users,\n    validators,\n)\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\nclass EmailBody(BaseModel):\n    email: str\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n\n\n@app.patch(\"/users/me/email\")\ndef change_email_endpoint(body: EmailBody, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return users.change_email(user_id, body.email)\n\n\n@app.get(\"/notifications/inbox\")\ndef inbox_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    from app import notifications\n\n    return {\"messages\": notifications.list_messages(user_id)}\n\n\n@app.get(\"/audit/events\")\ndef audit_events_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    from app import audit\n\n    return {\"events\": audit.events_for_order(order_id)}\n\n\n@app.get(\"/reports/sales\")\ndef sales_report_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    if users.get_user(user_id).get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return reports.build_snapshot()\n\n\n@app.get(\"/quotes/surcharge\")\ndef surcharge_quote(amount: float, region: str = \"home\") -> dict:\n    from app import tax\n\n    return {\n        \"amount\": amount,\n        \"region\": region,\n        \"surcharge\": (\n            tax.away_levy(amount)\n            if region == \"remote\"\n            else tax.tax_on(amount, region)\n        ),\n    }\n\n\n@app.get(\"/quotes/delivery\")\ndef delivery_quote(sku: str, qty: int = 1, zone: str | None = None) -> dict:\n    from app import shipping\n\n    items = [{\"sku\": sku, \"qty\": qty}]\n    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_01_5QZdWs1QWRFYHCR3R6rC2694",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/shipping.py"
+      },
+      "result": "\"\"\"Outbound shipping quotes and zone tables.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import catalog, settings\n\n\nclass Address:\n    def __init__(self, line: str, zone: str | None = None) -> None:\n        self.line = line\n        self.zone = zone or settings.default_zone()\n\n    def normalized(self) -> str:\n        return self.line.strip()\n\n    def is_complete(self) -> bool:\n        return bool(self.normalized())\n\n\n_ZONE_RATES: dict[str, float] = {\n    \"domestic\": 4.0,\n    \"express\": 12.0,\n    \"intl\": 18.0,\n}\n\n\ndef zone_rate(zone: str) -> float:\n    return float(_ZONE_RATES.get(zone, _ZONE_RATES[\"domestic\"]))\n\n\ndef quote_zone(zone: str | None = None) -> str:\n    return zone or settings.default_zone()\n\n\ndef base_postage(zone: str | None = None) -> float:\n    return zone_rate(quote_zone(zone))\n\n\ndef weight_surcharge(weight_g: int) -> float:\n    if weight_g <= 0:\n        return 0.0\n    extra = max(weight_g - 250, 0)\n    return round(extra / 250.0 * 1.5, 2)\n\n\ndef quote_shipment(items: list[dict], zone: str | None = None) -> float:\n    if catalog.digital_only(items):\n        return 0.0\n    postage = base_postage(zone)\n    postage += weight_surcharge(catalog.line_weight(items))\n    return round(postage, 2)\n\n\ndef can_ship(items: list[dict]) -> bool:\n    return not catalog.digital_only(items)\n\n\ndef destination_ok(address: Address) -> bool:\n    return address.is_complete()\n\n\ndef format_label(address: Address, items: list[dict]) -> str:\n    titles = \", \".join(catalog.describe_items(items))\n    return f\"{address.normalized()} / {quote_zone(address.zone)} / {titles}\"\n\n\ndef estimate_days(zone: str | None = None) -> int:\n    chosen = quote_zone(zone)\n    if chosen == \"express\":\n        return 1\n    if chosen == \"intl\":\n        return 7\n    return 3\n\n\ndef reset_store() -> None:\n    _ZONE_RATES[\"domestic\"] = 4.0\n    _ZONE_RATES[\"express\"] = 12.0\n    _ZONE_RATES[\"intl\"] = 18.0\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_02_xCsX6pIybtvaggM7Xp5K9434",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_download_delivery.py"
+      },
+      "result": "\"\"\"A download-only title should not be billed for delivery.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app import catalog, shipping\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef test_download_only_title_has_no_delivery_charge():\n    items = [{\"sku\": \"ebook\", \"qty\": 1}]\n    assert catalog.digital_only(items) is True\n    assert shipping.quote_shipment(items) == 0.0\n    quoted = client.get(\"/quotes/delivery\", params={\"sku\": \"ebook\"})\n    assert quoted.status_code == 200\n    assert quoted.json()[\"postage\"] == 0.0\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_MUFQtmPbdX1f5CQvk1J71105",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "delivery"
+      },
+      "result": "app/main.py:161:@app.get(\"/quotes/delivery\")\napp/main.py:162:def delivery_quote(sku: str, qty: int = 1, zone: str | None = None) -> dict:\napp/orders.py:54:    webhooks.queue_delivery(\"order.created\", {\"id\": order[\"id\"], \"user_id\": user_id})\napp/webhooks.py:50:def queue_delivery(kind: str, payload: dict) -> list[dict]:\napp/webhooks.py:70:def last_delivery() -> dict | None:\ntests/test_download_delivery.py:1:\"\"\"A download-only title should not be billed for delivery.\"\"\"\ntests/test_download_delivery.py:11:def test_download_only_title_has_no_delivery_charge():\ntests/test_download_delivery.py:15:    quoted = client.get(\"/quotes/delivery\", params={\"sku\": \"ebook\"})"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_01_DhUMpueGGM67XxEKKyED7535",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "shipping"
+      },
+      "result": "app/fulfillment.py:5:from app import catalog, shipping\napp/fulfillment.py:55:    return shipping.quote_shipment(items)\napp/main.py:163:    from app import shipping\napp/main.py:166:    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\napp/orders.py:90:        shipping,\napp/orders.py:108:    shipping.reset_store()\napp/shipping.py:1:\"\"\"Outbound shipping quotes and zone tables.\"\"\"\napp/support.py:29:    \"shipping\": \"We shipped your parcel.\",\ntests/test_download_delivery.py:5:from app import catalog, shipping\ntests/test_download_delivery.py:14:    assert shipping.quote_shipment(items) == 0.0"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_ET_SCDPF5XJq8MSZgQNgFY05498",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/fulfillment.py"
+      },
+      "result": "\"\"\"Pick, pack, and dispatch helpers for physical lines.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import catalog, shipping\n\n\nclass PickJob:\n    def __init__(self, order_id: int, sku: str, qty: int) -> None:\n        self.order_id = order_id\n        self.sku = sku\n        self.qty = qty\n        self.packed = False\n\n    def mark_packed(self) -> None:\n        self.packed = True\n\n    def as_dict(self) -> dict:\n        return {\n            \"order_id\": self.order_id,\n            \"sku\": self.sku,\n            \"qty\": self.qty,\n            \"packed\": self.packed,\n        }\n\n\n_JOBS: list[PickJob] = []\n\n\ndef plan_picks(order_id: int, items: list[dict]) -> list[dict]:\n    jobs: list[dict] = []\n    for item in items:\n        sku = str(item.get(\"sku\") or \"widget\")\n        if not catalog.is_shippable(sku):\n            continue\n        job = PickJob(order_id, sku, int(item.get(\"qty\", 1) or 1))\n        _JOBS.append(job)\n        jobs.append(job.as_dict())\n    return jobs\n\n\ndef pack_next() -> dict | None:\n    for job in _JOBS:\n        if not job.packed:\n            job.mark_packed()\n            return job.as_dict()\n    return None\n\n\ndef pending_count() -> int:\n    return sum(1 for job in _JOBS if not job.packed)\n\n\ndef postage_for(items: list[dict]) -> float:\n    return shipping.quote_shipment(items)\n\n\ndef jobs_for(order_id: int) -> list[dict]:\n    return [job.as_dict() for job in _JOBS if job.order_id == order_id]\n\n\ndef reset_store() -> None:\n    _JOBS.clear()\n"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_01_ET_h2gx0xIvM6N8heTOEvEB7504",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/payments.py"
+      },
+      "result": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_3GxnBBqggHyr3u8bkIeB6682",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "postage"
+      },
+      "result": "app/fulfillment.py:54:def postage_for(items: list[dict]) -> float:\napp/main.py:166:    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\napp/shipping.py:35:def base_postage(zone: str | None = None) -> float:\napp/shipping.py:49:    postage = base_postage(zone)\napp/shipping.py:50:    postage += weight_surcharge(catalog.line_weight(items))\napp/shipping.py:51:    return round(postage, 2)\ntests/test_download_delivery.py:17:    assert quoted.json()[\"postage\"] == 0.0"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_01_vUk45hs4vJxdDHMBoNh15842",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "weight"
+      },
+      "result": "app/catalog.py:7:    def __init__(self, sku: str, title: str, shippable: bool, weight_g: int) -> None:\napp/catalog.py:11:        self.weight_g = weight_g\napp/catalog.py:17:        return self.shippable and self.weight_g > 0\napp/catalog.py:39:def weight_grams(sku: str) -> int:\napp/catalog.py:40:    return int(get_entry(sku).weight_g)\napp/catalog.py:43:def register_entry(sku: str, title: str, shippable: bool = True, weight_g: int = 100) -> CatalogEntry:\napp/catalog.py:44:    entry = CatalogEntry(sku, title, shippable, weight_g)\napp/catalog.py:53:def line_weight(items: list[dict]) -> int:\napp/catalog.py:58:        total += weight_grams(sku) * max(qty, 0)\napp/shipping.py:39:def weight_surcharge(weight_g: int) -> float:\napp/shipping.py:40:    if weight_g <= 0:\napp/shipping.py:42:    extra = max(weight_g - 250, 0)\napp/shipping.py:50:    postage += weight_surcharge(catalog.line_weight(items))"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_WxULgELGaKqc6EyMOkCH8148",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_total.py"
+      },
+      "result": "\"\"\"Order line totals.\"\"\"\n\nfrom app import orders\n\n\ndef test_line_total_is_not_unit_prices_only():\n    total = orders.calculate_total(\n        [\n            {\"price\": 10.0, \"qty\": 3},\n            {\"price\": 2.5, \"qty\": 2},\n        ]\n    )\n    # Summing unit prices and ignoring qty yields 12.5.\n    assert total != 12.5\n"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_01_jlPaftjR1hw0BVQCKVyC0932",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_coupon_refund.py"
+      },
+      "result": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_02_a6uFeoagmivmBPwgL8bm4410",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_inventory_orders.py"
+      },
+      "result": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_00_ag6TxsEA4hWqt7fdyhbA1534",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_download_delivery.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 1.86s"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_00_yaBMQunBeMH4zMZWbo9q1918",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/pricing.py"
+      },
+      "result": "\"\"\"Quotes, tax, and coupons.\n\nA coupon code should change the payable amount at most once. Checkout currently\ndoes not call ``compute_checkout_total``.\n\"\"\"\n\nCOUPONS = {\n    \"SAVE10\": 0.10,\n    \"SAVE20\": 0.20,\n}\n\n\ndef quote_price(sku: str, qty: int, unit_price: float) -> float:\n    \"\"\"Unit quote helper; not used by ``orders.create_order``.\"\"\"\n    return round(unit_price * qty, 2)\n\n\ndef apply_tax(subtotal: float, tax_rate: float = 0.0) -> float:\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef apply_coupon(amount: float, code: str | None) -> float:\n    if not code:\n        return round(float(amount), 2)\n    rate = COUPONS.get(code.upper(), 0.0)\n    return round(float(amount) * (1.0 - rate), 2)\n\n\ndef compute_checkout_total(\n    items: list[dict],\n    coupon: str | None = None,\n    tax_rate: float = 0.0,\n) -> float:\n    \"\"\"One-shot subtotal → coupon → tax. Unused by the order service today.\"\"\"\n    subtotal = sum(float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items)\n    discounted = apply_coupon(subtotal, coupon)\n    return apply_tax(discounted, tax_rate)\n"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_01_1kZUsaa5IPTTWUgHv2El8300",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/inventory.py"
+      },
+      "result": "\"\"\"Warehouse stock and bin allocation.\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_02_jjE3cGzkyqm2UoQMjDs79950",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/tax.py"
+      },
+      "result": "\"\"\"Sales-tax tables keyed by shop settings.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import settings\n\n\nclass Nexus:\n    def __init__(self, code: str, rate: float) -> None:\n        self.code = code\n        self.rate = rate\n\n    def applies(self, code: str) -> bool:\n        return self.code == code\n\n    def amount(self, subtotal: float) -> float:\n        return round(float(subtotal) * float(self.rate), 2)\n\n\n_NEXUS: dict[str, Nexus] = {\n    \"home\": Nexus(\"home\", 0.0),\n    \"remote\": Nexus(\"remote\", 0.0),\n}\n\n\ndef home_nexus() -> Nexus:\n    return _NEXUS[\"home\"]\n\n\ndef remote_nexus() -> Nexus:\n    return _NEXUS[\"remote\"]\n\n\ndef rate_for(code: str = \"home\") -> float:\n    nexus = _NEXUS.get(code) or home_nexus()\n    if nexus.rate:\n        return nexus.rate\n    return settings.tax_rate()\n\n\ndef tax_on(subtotal: float, code: str = \"home\") -> float:\n    return round(float(subtotal) * rate_for(code), 2)\n\n\ndef away_levy(subtotal: float) -> float:\n    return tax_on(subtotal, \"remote\")\n\n\ndef inclusive_total(subtotal: float, code: str = \"home\") -> float:\n    return round(float(subtotal) + tax_on(subtotal, code), 2)\n\n\ndef exempt(subtotal: float) -> float:\n    return round(float(subtotal), 2)\n\n\ndef set_nexus_rate(code: str, rate: float) -> None:\n    if code not in _NEXUS:\n        _NEXUS[code] = Nexus(code, rate)\n    else:\n        _NEXUS[code].rate = rate\n\n\ndef nexus_codes() -> list[str]:\n    return sorted(_NEXUS)\n\n\ndef reset_store() -> None:\n    _NEXUS.clear()\n    _NEXUS[\"home\"] = Nexus(\"home\", 0.0)\n    _NEXUS[\"remote\"] = Nexus(\"remote\", 0.0)\n"
+    },
+    {
+      "step": 11,
+      "tool_call_id": "call_00_qXIz770GtLqyVO9GHmNL2236",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "--- status ---\nM app/catalog.py\n M app/shipping.py\n--- diff ---\ndiff --git a/app/catalog.py b/app/catalog.py\nindex 0b77b65..a1f5274 100644\n--- a/app/catalog.py\n+++ b/app/catalog.py\n@@ -64,7 +64,9 @@ def describe_items(items: list[dict]) -> list[str]:\n \n \n def digital_only(items: list[dict]) -> bool:\n-    return False\n+    if not items:\n+        return False\n+    return all(not get_entry(str(item.get(\"sku\") or \"widget\")).is_physical() for item in items)\n \n \n def reset_store() -> None:\ndiff --git a/app/shipping.py b/app/shipping.py\nindex e1cb3b3..3a05fbd 100644\n--- a/app/shipping.py\n+++ b/app/shipping.py\n@@ -44,6 +44,8 @@ def weight_surcharge(weight_g: int) -> float:\n \n \n def quote_shipment(items: list[dict], zone: str | None = None) -> float:\n+    if catalog.digital_only(items):\n+        return 0.0\n     postage = base_postage(zone)\n     postage += weight_surcharge(catalog.line_weight(items))\n     return round(postage, 2)"
+    },
+    {
+      "step": 11,
+      "tool_call_id": "call_01_1Ro0moHJoMXmLwSKrrn71810",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "quote_shipment"
+      },
+      "result": "app/fulfillment.py:55:    return shipping.quote_shipment(items)\napp/main.py:166:    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\napp/shipping.py:46:def quote_shipment(items: list[dict], zone: str | None = None) -> float:\ntests/test_download_delivery.py:14:    assert shipping.quote_shipment(items) == 0.0"
+    },
+    {
+      "step": 12,
+      "tool_call_id": "call_00_m4Zdvhay9Us74gcG2HIV0247",
+      "tool": "run_tests",
+      "arguments": {
+        "__dummy": "ignored"
+      },
+      "result": "exit_code=0\ncommand: pytest tests/test_download_delivery.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 1.43s"
+    },
+    {
+      "step": 13,
+      "tool_call_id": "call_00_eVkIyCQJ7jV6Y7dnYv8N3752",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "checkout"
+      },
+      "result": "app/pricing.py:4:does not call ``compute_checkout_total``.\napp/pricing.py:29:def compute_checkout_total(\ntests/test_inventory_orders.py:1:\"\"\"Oversized checkout against warehouse stock.\"\"\"\ntests/test_late_checkout_confirmation.py:1:\"\"\"Late checkout does not leave the inbox empty.\"\"\"\ntests/test_late_checkout_confirmation.py:20:def test_late_checkout_still_sends_a_confirmation():\ntests/test_orders_coupon_refund.py:1:\"\"\"Coupon checkout totals.\"\"\"\ntests/test_orders_idempotency.py:1:\"\"\"Repeated checkout keys for a single shopper.\"\"\"\ntests/test_orders_idempotency.py:19:def test_alice_replayed_checkout_key_is_not_a_second_order():\ntests/test_out_of_region_surcharge.py:1:\"\"\"Out-of-region checkout still billed at the shop surcharge.\"\"\""
+    },
+    {
+      "step": 13,
+      "tool_call_id": "call_01_y4mS6d9gVO9DlXjFAmtH8827",
+      "tool": "read_file",
+      "arguments": {
+        "path": "README.md"
+      },
+      "result": "# issue-pilot-benchmark\n\nA small FastAPI application used as the target repository for the IssuePilot\ncoding-agent harness.\n\nThis repository is **intentionally broken at HEAD**. Visible tests under\n`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\nare not part of this tree.\n\n## Layout\n\n```\napp/          FastAPI app and supporting storefront modules\ntests/        Symptom-level reproductions (one issue per file)\n```\n\n## Run tests\n\n```bash\npip install -r requirements.txt\npytest -q\n```\n\nDo not fix the bugs by hand in the committed baseline — the harness runs\n`git reset --hard <base_commit> && git clean -fd` before every task.\n"
+    },
+    {
+      "step": 14,
+      "tool_call_id": "call_00_I7GyI0LETDSvTpLDeTY76749",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "_ORDERS"
+      },
+      "result": "app/orders.py:7:_ORDERS: list[dict] = []\napp/orders.py:33:        \"id\": len(_ORDERS) + 1,\napp/orders.py:41:    _ORDERS.append(order)\napp/orders.py:69:    for o in _ORDERS:\napp/orders.py:76:    return list(_ORDERS)\napp/orders.py:96:    _ORDERS.clear()"
+    },
+    {
+      "step": 14,
+      "tool_call_id": "call_01_LF77wQ6cqSUyJqmFYKwS1342",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_late_checkout_confirmation.py"
+      },
+      "result": "\"\"\"Late checkout does not leave the inbox empty.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app import settings\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_late_checkout_still_sends_a_confirmation():\n    settings.enable_flag(\"quiet_hours\")\n    token = _login_alice()\n    headers = {\"Authorization\": f\"Bearer {token}\"}\n    created = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"gadget\", \"price\": 5.0, \"qty\": 1}]},\n        headers=headers,\n    )\n    assert created.status_code == 200\n\n    inbox = client.get(\"/notifications/inbox\", headers=headers)\n    assert inbox.status_code == 200\n    messages = inbox.json()[\"messages\"]\n    assert messages\n    assert messages[-1][\"template\"] == \"receipt\"\n    assert messages[-1].get(\"skipped\") is not True\n"
+    },
+    {
+      "step": 14,
+      "tool_call_id": "call_02_sEbmOvei8YQVcObZksf29978",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_idempotency.py"
+      },
+      "result": "\"\"\"Repeated checkout keys for a single shopper.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_alice_replayed_checkout_key_is_not_a_second_order():\n    token = _login_alice()\n    headers = {\n        \"Authorization\": f\"Bearer {token}\",\n        \"Idempotency-Key\": \"abc-123\",\n    }\n    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}\n    r1 = client.post(\"/orders\", json=body, headers=headers)\n    r2 = client.post(\"/orders\", json=body, headers=headers)\n    assert r1.status_code == 200 and r2.status_code == 200\n    assert r1.json()[\"id\"] == r2.json()[\"id\"]\n"
+    },
+    {
+      "step": 15,
+      "tool_call_id": "call_00_4jmhBVNKYid4b23E8vk54560",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "total"
+      },
+      "result": "app/audit.py:38:def record_sale(actor_id: int, order_id: int, total: float) -> dict:\napp/audit.py:39:    return append_event(KIND_SALE, actor_id, order_id, total=float(total))\napp/catalog.py:54:    total = 0\napp/catalog.py:58:        total += weight_grams(sku) * max(qty, 0)\napp/catalog.py:59:    return total\napp/ledger.py:54:def captured_total(user_id: int | None = None) -> float:\napp/ledger.py:55:    total = 0.0\napp/ledger.py:60:            total += line.amount\napp/ledger.py:62:            total -= line.amount\napp/ledger.py:63:    return round(total, 2)\napp/orders.py:10:def calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\napp/orders.py:11:    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\napp/orders.py:12:    subtotal = sum(item[\"price\"] for item in items)\napp/orders.py:13:    return round(subtotal * (1 + tax_rate), 2)\napp/orders.py:25:    total = calculate_total(items)\napp/orders.py:27:        total = pricing.apply_coupon(total, coupon)\napp/orders.py:28:        total = pricing.apply_coupon(total, coupon)\napp/orders.py:30:    payments.charge(user_id, total, items)\napp/orders.py:36:        \"total\": round(total, 2),\napp/orders.py:49:    audit.record_sale(user_id, int(order[\"id\"]), float(order[\"total\"]))\napp/orders.py:51:    ledger.record_capture(user_id, float(order[\"total\"]), f\"order:{order['id']}\")\napp/orders.py:52:    loyalty.accrue(user_id, float(order[\"total\"]))\napp/orders.py:63:    audit.record_sale(order[\"user_id\"], order_id, float(order[\"total\"]))\napp/orders.py:64:    ledger.record_void(order[\"user_id\"], float(order[\"total\"]), f\"order:{order_id}\")\napp/orders.py:65:    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\napp/payments.py:24:    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\napp/pricing.py:4:does not call ``compute_checkout_total``.\napp/pricing.py:18:def apply_tax(subtotal: float, tax_rate: float = 0.0) -> float:\napp/pricing.py:19:    return round(subtotal * (1 + tax_rate), 2)\napp/pricing.py:29:def compute_checkout_total(\napp/pricing.py:34:    \"\"\"One-shot subtotal → coupon → tax. Unused by the order service today.\"\"\"\napp/pricing.py:35:    subtotal = sum(float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items)\napp/pricing.py:36:    discounted = apply_coupon(subtotal, coupon)\napp/reports.py:1:\"\"\"Aggregated storefront totals for staff dashboards.\"\"\"\napp/reports.py:36:def merchandise_total(rows: list[dict]) -> float:\napp/reports.py:50:    merchandise = merchandise_total(rows)\napp/reports.py:52:        merchandise = tax.inclusive_total(merchandise)\napp/reports.py:65:    return round(merchandise_total(rows) / len(rows), 2)\napp/reports.py:69:    total = 0\napp/reports.py:73:                total += int(item.get(\"qty\", 1) or 1)\napp/reports.py:74:    return total\napp/tax.py:16:    def amount(self, subtotal: float) -> float:\napp/tax.py:17:        return round(float(subtotal) * float(self.rate), 2)\napp/tax.py:41:def tax_on(subtotal: float, code: str = \"home\") -> float:\napp/tax.py:42:    return round(float(subtotal) * rate_for(code), 2)\napp/tax.py:45:def away_levy(subtotal: float) -> float:\napp/tax.py:46:    return tax_on(subtotal, \"remote\")\napp/tax.py:49:def inclusive_total(subtotal: float, code: str = \"home\") -> float:\napp/tax.py:50:    return round(float(subtotal) + tax_on(subtotal, code), 2)\napp/tax.py:53:def exempt(subtotal: float) -> float:\napp/tax.py:54:    return round(float(subtotal), 2)\ntests/test_orders_coupon_refund.py:1:\"\"\"Coupon checkout totals.\"\"\"\ntests/test_orders_coupon_refund.py:30:    assert r.json()[\"total\"] == 9.0\ntests/test_orders_total.py:1:\"\"\"Order line totals.\"\"\"\ntests/test_orders_total.py:6:def test_line_total_is_not_unit_prices_only():\ntests/test_orders_total.py:7:    total = orders.calculate_total(\ntests/test_orders_total.py:14:    assert total != 12.5"
+    }
+  ],
+  "messages": [],
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "sandbox_backend": "docker",
+  "sandbox_image": "issue-pilot-sandbox:py312",
+  "sandbox_network": "none",
+  "sandbox_container_name": "issue-pilot-issue-017-f2be1a09",
+  "sandbox_command_count": 26,
+  "sandbox_timeout_count": 0,
+  "sandbox_truncation_count": 0,
+  "sandbox_denial_count": 0,
+  "sandbox_exec_latency_ms": 31063.33,
+  "sandbox_started": true,
+  "sandbox_cleaned_up": true,
+  "analysis": "The problem: A customer purchased a digital, download-only product but was charged a delivery/shipping fee at checkout. This is incorrect because digital items don’t require physical shipment, resulting in an unexpected charge.\n\nInitial hypothesis: The checkout/shipping logic applies shipping fees to the entire order based on the cart or shipping method, without checking whether the product is a digital/download-only item. The system likely lacks a rule that exempts downloadable products from shipping calculation, or the product type flag is not being evaluated during rate calculation.",
+  "plan": {
+    "problem": "A customer purchased a digital, download-only title and was charged a delivery/shipping fee at checkout, even though downloadable products should not incur shipping charges.",
+    "hypothesis": "The delivery fee is not being removed by the existing all-digital shortcut in the shipping quote; it is instead added later in the order-total/checkout calculation, which still includes every line item without filtering out entries where CatalogEntry.is_physical() is False. Because a download-only product is non-physical, its shippable/weight fields are not enough to prevent delivery cost unless the total-calculation path explicitly excludes non-physical items.",
+    "files_to_inspect": [
+      "app/catalog.py"
+    ],
+    "steps": [
+      "Inspect app/catalog.py to confirm how download-only entries are represented and that CatalogEntry.is_physical() correctly identifies physical vs. digital items.",
+      "Trace every order-total and delivery-fee calculation path by searching for references to quote_shipment, delivery, shipping, weight, shippable, and is_physical outside app/catalog.py; identify where non-physical line items are still counted toward delivery.",
+      "Patch the order-total/checkout logic so delivery/shipping is calculated only from line items where CatalogEntry.is_physical() is True, ensuring download-only items never add delivery while physical items still do.",
+      "Run the existing test suite and any targeted digital/download-only order tests to confirm the charge is gone and physical-item shipping behavior is unchanged."
+    ]
+  },
+  "diagnosis": "The attempted patch only adds a digital-only early return to `shipping.quote_shipment` and implements `catalog.digital_only`, but the checkout/order-total path that actually produces the charged delivery fee does not appear to use `quote_shipment` (or does not propagate its result into the order total). As a result, a download-only order still gets the delivery charge; the fix is applied to the wrong function, so the verified end-to-end scenario still fails. [BAD_PATCH] New hypothesis: The delivery fee is computed and stored in the order-creation path (`app/orders.py` or `app/calculator.py`) independently of `shipping.quote_shipment`, likely as an order-level `delivery_fee` derived from item count, weight, or CatalogEntry shipping fields. Therefore patching `quote_shipment` only changes the standalone shipping-quote endpoint; the real checkout total must be modified to set delivery to 0 for digital-only carts and to base shipping only on physical line items. Next: Inspect `app/orders.py` and `app/calculator.py` for the order-total/checkout calculation; search for `delivery_fee`, `shipping`, `quote_shipment`, `is_physical`, and `digital_only` to find where the delivery charge is actually added.; Patch the order-creation/total path so delivery is calculated only from physical items (or is zero when `catalog.digital_only(items)` is true), rather than relying on `quote_shipment` alone.; Add or run an end-to-end test that creates/downloads an order through the API for a download-only SKU and asserts the returned `delivery_fee` and `total` exclude delivery.; Verify mixed-cart behavior: if a cart contains both digital and physical items, physical items still incur shipping while digital items do not affect the shipping total.; Run the full test suite and `ruff check app --fix` to catch regressions and clean up lint issues in the touched files.",
+  "verification": {
+    "command": "pytest tests/test_download_delivery.py -q",
+    "lint_command": "ruff check app",
+    "exit_code": 0,
+    "passed": false,
+    "deterministic_pass": false,
+    "pytest_passed": true,
+    "ruff_passed": false,
+    "ruff_autofixed": true,
+    "patch_valid": true,
+    "changed_files": [
+      "app/catalog.py",
+      "app/shipping.py"
+    ],
+    "untracked_files": [],
+    "output": "exit_code=0\ncommand: pytest tests/test_download_delivery.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 1.54s",
+    "ruff_output": "exit_code=1\ncommand: ruff check app --ignore EXE001 --ignore EXE002\n--- stdout ---\nRUF100 [*] Unused `noqa` directive (non-enabled: `S105`)\n --> app/auth.py:8:43\n  |\n6 | from fastapi import HTTPException\n7 |\n8 | SECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\n  |                                           ^^^^^^^^^^^^\n9 | ALGO = \"HS256\"\n  |\nhelp: Remove unused `noqa` directive\n  |\n7 |\n  - SECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\n8 + SECRET = \"dev-secret-do-not-use-in-prod\"\n9 | ALGO = \"HS256\"\n  |\n\nI001 [*] Import block is un-sorted or un-formatted\n  --> app/main.py:3:1\n   |\n 1 |   \"\"\"FastAPI app wiring.\"\"\"\n 2 |\n 3 | / from fastapi import FastAPI, Header, HTTPException\n 4 | | from pydantic import BaseModel\n 5 | |\n 6 | | from app import (\n 7 | |     auth,\n 8 | |     calculator,\n 9 | |     inventory,\n10 | |     orders,\n11 | |     reports,\n12 | |     users,\n13 | |     validators,\n14 | | )\n   | |_^\nhelp: Organize imports\n   |\n15 |\n   -\n16 | app = FastAPI(title=\"issue-pilot-benchmark\")\n   |\n\nI001 [*] Import block is un-sorted or un-formatted\n --> app/settings.py:3:1\n  |\n1 | \"\"\"Runtime flags, locales, and shop defaults.\"\"\"\n2 |\n3 | from __future__ import annotations\n  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nhelp: Organize imports\n  |\n4 |\n  -\n5 | _DEFAULTS: dict[str, object] = {\n  |\n\nFound 3 errors.\n[*] 3 fixable with the `--fix` option.",
+    "git_diff": "--- status ---\nM app/catalog.py\n M app/shipping.py\n--- diff ---\ndiff --git a/app/catalog.py b/app/catalog.py\nindex 0b77b65..a1f5274 100644\n--- a/app/catalog.py\n+++ b/app/catalog.py\n@@ -64,7 +64,9 @@ def describe_items(items: list[dict]) -> list[str]:\n \n \n def digital_only(items: list[dict]) -> bool:\n-    return False\n+    if not items:\n+        return False\n+    return all(not get_entry(str(item.get(\"sku\") or \"widget\")).is_physical() for item in items)\n \n \n def reset_store() -> None:\ndiff --git a/app/shipping.py b/app/shipping.py\nindex e1cb3b3..3a05fbd 100644\n--- a/app/shipping.py\n+++ b/app/shipping.py\n@@ -44,6 +44,8 @@ def weight_surcharge(weight_g: int) -> float:\n \n \n def quote_shipment(items: list[dict], zone: str | None = None) -> float:\n+    if catalog.digital_only(items):\n+        return 0.0\n     postage = base_postage(zone)\n     postage += weight_surcharge(catalog.line_weight(items))\n     return round(postage, 2)"
+  },
+  "status": "needs_human",
+  "workflow_passed": false,
+  "stage_tokens": {
+    "analyze": {
+      "prompt_tokens": 152,
+      "completion_tokens": 220,
+      "llm_calls": 1
+    },
+    "retrieve": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "llm_calls": 0
+    },
+    "plan": {
+      "prompt_tokens": 2424,
+      "completion_tokens": 3378,
+      "llm_calls": 2
+    },
+    "execute": {
+      "prompt_tokens": 210332,
+      "completion_tokens": 6088,
+      "llm_calls": 28
+    },
+    "diagnose": {
+      "prompt_tokens": 3674,
+      "completion_tokens": 16060,
+      "llm_calls": 2
+    }
+  },
+  "retry_count": 2,
+  "human_retry_count": 0,
+  "human_feedback": "",
+  "attempt_history": [
+    {
+      "attempt_index": 0,
+      "hypothesis": "Shipping charges are applied without first checking whether each line item is a physical product. The checkout/shipping logic likely uses the presence of a shipping method or item weight indiscriminately, or it relies on CatalogEntry.shippable alone instead of CatalogEntry.is_physical(), so digital products that have shippable=False and weight_g=0 are still included in delivery cost calculation.",
+      "deterministic_pass": false,
+      "evaluator_pass": null,
+      "failure_source": "deterministic",
+      "failure_category": "WRONG_HYPOTHESIS",
+      "root_cause": "The patch only special-cases `shipping.quote_shipment` to return 0 when every line is digital, but it does not affect the actual checkout/order-total path where the delivery fee is charged. The digital-only shortcut also does not filter non-physical line items from shipping when a cart contains both digital and physical products, so the verified order flow can still add delivery for a download-only title."
+    },
+    {
+      "attempt_index": 1,
+      "hypothesis": "The delivery fee is not being removed by the existing all-digital shortcut in the shipping quote; it is instead added later in the order-total/checkout calculation, which still includes every line item without filtering out entries where CatalogEntry.is_physical() is False. Because a download-only product is non-physical, its shippable/weight fields are not enough to prevent delivery cost unless the total-calculation path explicitly excludes non-physical items.",
+      "deterministic_pass": false,
+      "evaluator_pass": null,
+      "failure_source": "deterministic",
+      "failure_category": "BAD_PATCH",
+      "root_cause": "The attempted patch only adds a digital-only early return to `shipping.quote_shipment` and implements `catalog.digital_only`, but the checkout/order-total path that actually produces the charged delivery fee does not appear to use `quote_shipment` (or does not propagate its result into the order total). As a result, a download-only order still gets the delivery charge; the fix is applied to the wrong function, so the verified end-to-end scenario still fails."
+    }
+  ],
+  "structured_diagnosis": {
+    "root_cause": "The attempted patch only adds a digital-only early return to `shipping.quote_shipment` and implements `catalog.digital_only`, but the checkout/order-total path that actually produces the charged delivery fee does not appear to use `quote_shipment` (or does not propagate its result into the order total). As a result, a download-only order still gets the delivery charge; the fix is applied to the wrong function, so the verified end-to-end scenario still fails.",
+    "failure_category": "BAD_PATCH",
+    "new_hypothesis": "The delivery fee is computed and stored in the order-creation path (`app/orders.py` or `app/calculator.py`) independently of `shipping.quote_shipment`, likely as an order-level `delivery_fee` derived from item count, weight, or CatalogEntry shipping fields. Therefore patching `quote_shipment` only changes the standalone shipping-quote endpoint; the real checkout total must be modified to set delivery to 0 for digital-only carts and to base shipping only on physical line items.",
+    "next_actions": [
+      "Inspect `app/orders.py` and `app/calculator.py` for the order-total/checkout calculation; search for `delivery_fee`, `shipping`, `quote_shipment`, `is_physical`, and `digital_only` to find where the delivery charge is actually added.",
+      "Patch the order-creation/total path so delivery is calculated only from physical items (or is zero when `catalog.digital_only(items)` is true), rather than relying on `quote_shipment` alone.",
+      "Add or run an end-to-end test that creates/downloads an order through the API for a download-only SKU and asserts the returned `delivery_fee` and `total` exclude delivery.",
+      "Verify mixed-cart behavior: if a cart contains both digital and physical items, physical items still incur shipping while digital items do not affect the shipping total.",
+      "Run the full test suite and `ruff check app --fix` to catch regressions and clean up lint issues in the touched files."
+    ]
+  },
+  "patch_evaluation": {},
+  "recovery_success": false,
+  "approval_decision": "",
+  "resumed": false,
+  "resume_count": 0,
+  "sandbox_sessions": 1,
+  "retrieval_calls": 1,
+  "workflow_trace": [
+    {
+      "node": "analyze",
+      "status": "analyzed",
+      "detail": "",
+      "retry_count": 0,
+      "tokens_delta": 372,
+      "timestamp": "2026-08-19T11:46:22Z"
+    },
+    {
+      "node": "retrieve",
+      "status": "retrieved",
+      "detail": "app/catalog.py",
+      "retry_count": 0,
+      "tokens_delta": 0,
+      "timestamp": "2026-08-19T11:46:22Z"
+    },
+    {
+      "node": "plan",
+      "status": "planned",
+      "detail": "Shipping charges are applied without first checking whether each line item is a physical product. The checkout/shipping logic likely uses the presence of a shipping method or item weight indiscrimi...",
+      "retry_count": 0,
+      "tokens_delta": 1448,
+      "timestamp": "2026-08-19T11:46:29Z"
+    },
+    {
+      "node": "execute",
+      "status": "executed",
+      "detail": "steps=13",
+      "retry_count": 0,
+      "tokens_delta": 83009,
+      "timestamp": "2026-08-19T11:47:10Z"
+    },
+    {
+      "node": "verify",
+      "status": "verify_failed",
+      "detail": "FAIL pytest=1 ruff=0 patch=1",
+      "retry_count": 0,
+      "tokens_delta": 0,
+      "timestamp": "2026-08-19T11:47:15Z"
+    },
+    {
+      "node": "diagnose",
+      "status": "retrying",
+      "detail": "WRONG_HYPOTHESIS",
+      "retry_count": 1,
+      "tokens_delta": 11135,
+      "timestamp": "2026-08-19T11:48:45Z"
+    },
+    {
+      "node": "plan",
+      "status": "planned",
+      "detail": "The delivery fee is not being removed by the existing all-digital shortcut in the shipping quote; it is instead added later in the order-total/checkout calculation, which still includes every line...",
+      "retry_count": 1,
+      "tokens_delta": 4354,
+      "timestamp": "2026-08-19T11:49:11Z"
+    },
+    {
+      "node": "execute",
+      "status": "executed",
+      "detail": "steps=15",
+      "retry_count": 1,
+      "tokens_delta": 133411,
+      "timestamp": "2026-08-19T11:50:02Z"
+    },
+    {
+      "node": "verify",
+      "status": "verify_failed",
+      "detail": "FAIL pytest=1 ruff=0 patch=1",
+      "retry_count": 1,
+      "tokens_delta": 0,
+      "timestamp": "2026-08-19T11:50:08Z"
+    },
+    {
+      "node": "diagnose",
+      "status": "failed",
+      "detail": "BAD_PATCH",
+      "retry_count": 2,
+      "tokens_delta": 8599,
+      "timestamp": "2026-08-19T11:51:12Z"
+    },
+    {
+      "node": "feedback",
+      "status": "feedback_skipped",
+      "detail": "skipped",
+      "retry_count": 2,
+      "tokens_delta": 0,
+      "timestamp": "2026-08-19T11:51:12Z"
+    },
+    {
+      "node": "mark_needs_human",
+      "status": "needs_human",
+      "detail": "",
+      "retry_count": 2,
+      "tokens_delta": 0,
+      "timestamp": "2026-08-19T11:51:12Z"
+    }
+  ],
+  "checkpoint_stages": [
+    "Issue analyzed",
+    "Plan generated",
+    "Patch generated",
+    "Tests executed"
+  ],
+  "retrieval_mode": "hybrid",
+  "relevant_files": [
+    "app/catalog.py"
+  ],
+  "recall_at_5": 0.5,
+  "embedder_name": "hashing",
+  "query_mode": "issue",
+  "retrieve_query": "I bought a download-only title and still paid for delivery."
+}

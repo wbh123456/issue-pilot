@@ -17,6 +17,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from eval.metrics import normalize_path, unique_paths
 from eval.runner import HARNESS_ROOT, RUNS_DIR
 
 COHORT_KEYS = (
@@ -37,7 +38,14 @@ _METRIC_FIELDS = (
     "recovery_rate",
     "human_retries",
     "latency_s",
+    "localization_precision",
+    "layer1_gate_rate",
+    "search_code_calls",
+    "first_expected_read_step",
 )
+
+_DIFF_FILE_RE = re.compile(r"^diff --git a/(.+?) b/", re.MULTILINE)
+_EXIT_ZERO_RE = re.compile(r"exit_code\s*=\s*0")
 
 
 def load_run_files(runs_dir: Path | None = None) -> list[dict[str, Any]]:
@@ -80,6 +88,85 @@ def _mean(values: list[float]) -> float | None:
     if not values:
         return None
     return sum(values) / len(values)
+
+
+def patched_files_from_diff(diff: str) -> list[str]:
+    """Paths from a unified ``git diff`` header, preserving order."""
+    return unique_paths(_DIFF_FILE_RE.findall(diff or ""))
+
+
+def localization_precision(record: dict[str, Any]) -> float | None:
+    """Changed files ∩ expected_files / changed files. None if the patch is empty."""
+    expected = {
+        normalize_path(path)
+        for path in (record.get("expected_files") or [])
+        if path
+    }
+    patched = patched_files_from_diff(str(record.get("patch_diff") or ""))
+    if not patched:
+        return None
+    hits = sum(1 for path in patched if path in expected)
+    return hits / len(patched)
+
+
+def search_code_calls(record: dict[str, Any]) -> float:
+    return float(
+        sum(
+            1
+            for event in (record.get("trajectory") or [])
+            if (event or {}).get("tool") == "search_code"
+        )
+    )
+
+
+def first_expected_read_step(record: dict[str, Any]) -> float | None:
+    """Earliest trajectory step that read an expected file. None if never."""
+    expected = {
+        normalize_path(path)
+        for path in (record.get("expected_files") or [])
+        if path
+    }
+    if not expected:
+        return None
+    best: float | None = None
+    for event in record.get("trajectory") or []:
+        if (event or {}).get("tool") != "read_file":
+            continue
+        raw = ((event or {}).get("arguments") or {}).get("path")
+        path = normalize_path(str(raw or ""))
+        if path not in expected:
+            continue
+        step = (event or {}).get("step")
+        if step is None:
+            continue
+        value = float(step)
+        if best is None or value < best:
+            best = value
+    return best
+
+
+def layer1_gate_rate(record: dict[str, Any]) -> float | None:
+    """1.0 if the delivered patch still fails visible tests.
+
+    v1/v2 go through verify, so this is ``not pytest_passed``. v0 has no
+    verify node; the last ``run_tests`` tool result is used instead.
+    """
+    harness = str(record.get("harness_version") or "v0")
+    if harness in {"v1", "v2"}:
+        verification = record.get("verification") or {}
+        if "pytest_passed" in verification:
+            return 0.0 if verification.get("pytest_passed") else 1.0
+        if "workflow_passed" in record:
+            return 0.0 if record.get("workflow_passed") else 1.0
+        return None
+    last = None
+    for event in record.get("trajectory") or []:
+        if (event or {}).get("tool") == "run_tests":
+            last = event
+    if last is None:
+        return 1.0
+    result = str(last.get("result") or "")
+    return 0.0 if _EXIT_ZERO_RE.search(result) else 1.0
 
 
 def _recovery_success_flag(record: dict[str, Any]) -> float:
@@ -139,6 +226,10 @@ def _summarize_runs(group: list[dict[str, Any]]) -> dict[str, Any]:
     recovery = [_recovery_success_flag(r) for r in group]
     human = [float(r.get("human_retry_count") or 0) for r in group]
     latency = [float(r["latency"]) for r in group if r.get("latency") is not None]
+    loc = [v for r in group if (v := localization_precision(r)) is not None]
+    gate = [v for r in group if (v := layer1_gate_rate(r)) is not None]
+    search = [search_code_calls(r) for r in group]
+    first_read = [v for r in group if (v := first_expected_read_step(r)) is not None]
     return {
         "n": len(group),
         "resolve_rate": _mean(successes),
@@ -149,6 +240,10 @@ def _summarize_runs(group: list[dict[str, Any]]) -> dict[str, Any]:
         "recovery_rate": _mean(recovery) if recovery else 0.0,
         "human_retries": _mean(human) if human else 0.0,
         "latency_s": _mean(latency),
+        "localization_precision": _mean(loc),
+        "layer1_gate_rate": _mean(gate),
+        "search_code_calls": _mean(search) if search else 0.0,
+        "first_expected_read_step": _mean(first_read),
     }
 
 
@@ -195,6 +290,8 @@ def summarize_solve_cohort(records: list[dict[str, Any]]) -> list[dict[str, Any]
             averaged["recovery_rate"] = 0.0
         if averaged["human_retries"] is None:
             averaged["human_retries"] = 0.0
+        if averaged["search_code_calls"] is None:
+            averaged["search_code_calls"] = 0.0
         rows.append(averaged)
     return rows
 

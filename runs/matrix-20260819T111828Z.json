@@ -1,0 +1,122 @@
+{
+  "stamp": "20260819T111828Z",
+  "log_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\matrix-20260819T111828Z.log",
+  "manifest_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\matrix-20260819T111828Z.json",
+  "settings": {
+    "split": "ablation",
+    "harnesses": [
+      "v0",
+      "v1",
+      "v2"
+    ],
+    "n": 1,
+    "model": "deepseek-v4-flash",
+    "temperature": 0,
+    "max_steps": 15,
+    "sandbox_image": "issue-pilot-sandbox:py312",
+    "embedder": "hashing",
+    "query_mode": "issue",
+    "skip_existing": false,
+    "benchmark_spec_sha": "eb78bbfb527460b18088d72214d1674cd1b93278c3501efa9c1bf110f17574be",
+    "base_commits": [
+      "f7dbd4000d94dc5aab3835698dc3cb3bbd3eabc7"
+    ],
+    "task_ids": [
+      "issue-015",
+      "issue-016",
+      "issue-017"
+    ]
+  },
+  "cells": [
+    {
+      "task_id": "issue-015",
+      "harness_version": "v0",
+      "seed": 0,
+      "skipped": false,
+      "run_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\issue-015-v0-20260819T112003Z.json",
+      "success": false,
+      "error": null,
+      "paused": false
+    },
+    {
+      "task_id": "issue-015",
+      "harness_version": "v1",
+      "seed": 0,
+      "skipped": false,
+      "run_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\issue-015-v1-20260819T112415Z.json",
+      "success": false,
+      "error": null,
+      "paused": false
+    },
+    {
+      "task_id": "issue-015",
+      "harness_version": "v2",
+      "seed": 0,
+      "skipped": false,
+      "run_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\issue-015-v2-20260819T112825Z.json",
+      "success": false,
+      "error": null,
+      "paused": false
+    },
+    {
+      "task_id": "issue-016",
+      "harness_version": "v0",
+      "seed": 0,
+      "skipped": false,
+      "run_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\issue-016-v0-20260819T112935Z.json",
+      "success": false,
+      "error": null,
+      "paused": false
+    },
+    {
+      "task_id": "issue-016",
+      "harness_version": "v1",
+      "seed": 0,
+      "skipped": false,
+      "run_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\issue-016-v1-20260819T113031Z.json",
+      "success": false,
+      "error": null,
+      "paused": false
+    },
+    {
+      "task_id": "issue-016",
+      "harness_version": "v2",
+      "seed": 0,
+      "skipped": false,
+      "run_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\issue-016-v2-20260819T113622Z.json",
+      "success": true,
+      "error": null,
+      "paused": false
+    },
+    {
+      "task_id": "issue-017",
+      "harness_version": "v0",
+      "seed": 0,
+      "skipped": false,
+      "run_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\issue-017-v0-20260819T113701Z.json",
+      "success": true,
+      "error": null,
+      "paused": false
+    },
+    {
+      "task_id": "issue-017",
+      "harness_version": "v1",
+      "seed": 0,
+      "skipped": false,
+      "run_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\issue-017-v1-20260819T114616Z.json",
+      "success": true,
+      "error": null,
+      "paused": false
+    },
+    {
+      "task_id": "issue-017",
+      "harness_version": "v2",
+      "seed": 0,
+      "skipped": false,
+      "run_path": "C:\\Users\\Aaron\\issue-pilot\\runs\\issue-017-v2-20260819T115117Z.json",
+      "success": true,
+      "error": null,
+      "paused": false
+    }
+  ]
+}

@@ -156,9 +156,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     retrieve.add_argument(
         "--split",
-        choices=("smoke", "hard"),
+        choices=("smoke", "hard", "ablation"),
         default=None,
-        help="Evaluate every task in this split (hard = issue-008–011)",
+        help="Evaluate every task in this split (hard = issue-008–014)",
     )
     retrieve.add_argument(
         "--k",
@@ -212,7 +212,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     report.add_argument(
         "--split",
-        choices=("smoke", "hard"),
+        choices=("smoke", "hard", "ablation"),
         default=None,
         help="Keep only this dataset split",
     )
@@ -243,9 +243,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     bench.add_argument(
         "--split",
-        choices=("smoke", "hard"),
+        choices=("smoke", "hard", "ablation"),
         required=True,
         help="Dataset split to run",
+    )
+    bench.add_argument(
+        "--tasks",
+        default=None,
+        help="Comma-separated task ids within the split (default: all)",
     )
     bench.add_argument(
         "--harness",
@@ -546,7 +551,15 @@ def _print_report(report: dict) -> None:
         table.add_column("Recovery", justify="right")
         table.add_column("Human", justify="right")
         table.add_column("Latency s", justify="right")
+        table.add_column("LocPrec", justify="right")
+        table.add_column("L1Fail", justify="right")
+        table.add_column("Search", justify="right")
+        table.add_column("1stRead", justify="right")
         for row in cohort.get("harnesses") or []:
+            loc = row.get("localization_precision")
+            gate = row.get("layer1_gate_rate")
+            search = row.get("search_code_calls")
+            first = row.get("first_expected_read_step")
             table.add_row(
                 str(row.get("harness_version")),
                 str(row.get("n")),
@@ -559,6 +572,10 @@ def _print_report(report: dict) -> None:
                 f"{float(row.get('recovery_rate') or 0):.2f}",
                 f"{float(row.get('human_retries') or 0):.2f}",
                 f"{float(row.get('latency_s') or 0):.1f}",
+                "-" if loc is None else f"{float(loc):.2f}",
+                "-" if gate is None else f"{float(gate):.2f}",
+                f"{float(search or 0):.1f}",
+                "-" if first is None else f"{float(first):.1f}",
             )
         console.print(table)
 
@@ -832,6 +849,7 @@ def main(argv: list[str] | None = None) -> int:
                 query_mode=args.query_mode,
                 log_path=args.log or None,
                 progress=_progress_reporter(args),
+                task_ids=args.tasks,
             )
         except Exception as exc:
             console.print(f"[red]Error:[/red] {type(exc).__name__}: {exc}")

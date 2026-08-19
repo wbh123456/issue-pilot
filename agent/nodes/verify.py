@@ -61,9 +61,67 @@ def _with_sandbox_ignores(argv: list[str]) -> list[str]:
     return argv + extra
 
 
-def _with_fix(argv: list[str]) -> list[str] | None:
+_RUFF_VALUE_FLAGS = frozenset(
+    {
+        "--ignore",
+        "--select",
+        "--extend-select",
+        "--extend-ignore",
+        "--config",
+        "--exclude",
+        "--extend-exclude",
+        "--output-format",
+    }
+)
+
+
+def _ruff_flags_without_targets(argv: list[str]) -> list[str]:
+    """Keep ``ruff check`` and flags; drop positional targets such as ``app``."""
+    kept = [argv[0], argv[1]]
+    i = 2
+    while i < len(argv):
+        token = argv[i]
+        if token.startswith("-"):
+            kept.append(token)
+            if (
+                "=" not in token
+                and token in _RUFF_VALUE_FLAGS
+                and i + 1 < len(argv)
+                and not argv[i + 1].startswith("-")
+            ):
+                kept.append(argv[i + 1])
+                i += 2
+                continue
+            i += 1
+            continue
+        i += 1
+    return kept
+
+
+def _python_patch_paths(changed: list[str], untracked: list[str]) -> list[str]:
+    """Agent-touched ``.py`` paths, in worktree order, without duplicates."""
+    seen: list[str] = []
+    for path in [*changed, *untracked]:
+        if path.endswith(".py") and path not in seen:
+            seen.append(path)
+    return seen
+
+
+def _with_fix(argv: list[str], paths: list[str] | None = None) -> list[str] | None:
+    """Build ``ruff check --fix`` limited to ``paths`` when given.
+
+    Whole-package ``ruff check --fix app`` rewrites untouched modules and
+    poisons v1/v2 patch evaluation. Skip autofix when ``paths`` is empty.
+    """
     if not _is_ruff_check(argv):
         return None
+    if paths is not None:
+        if not paths:
+            return None
+        base = _ruff_flags_without_targets(argv)
+        if "--fix" not in base:
+            base = base[:2] + ["--fix"] + base[2:]
+        return base + paths
     if "--fix" in argv:
         return argv
     return argv[:2] + ["--fix"] + argv[2:]
@@ -91,7 +149,9 @@ def _run_ruff(
     )
     if outcome.passed or not argv:
         return outcome, False
-    fix_argv = _with_fix(_with_sandbox_ignores(argv))
+    tree = inspect_worktree(repo_path, sandbox=sandbox)
+    paths = _python_patch_paths(tree.changed_files, tree.untracked_files)
+    fix_argv = _with_fix(_with_sandbox_ignores(argv), paths)
     if not fix_argv:
         return outcome, False
     run_command(

@@ -1,0 +1,30 @@
+settings: model=deepseek-v4-flash temperature=0 max_steps=15
+base_commit=f7dbd4000d94dc5aab3835698dc3cb3bbd3eabc7
+sandbox=issue-pilot-sandbox:py312
+v2: embedder=hashing query_mode=issue
+n=1 per cell
+benchmark_spec_sha=eb78bbfb527460b18088d72214d1674cd1b93278c3501efa9c1bf110f17574be
+2026-08-19T11:51:57Z START issue-008 v0
+2026-08-19T11:52:48Z END issue-008 v0 exit=1
+2026-08-19T11:52:48Z START issue-008 v1
+2026-08-19T11:59:18Z END issue-008 v1 exit=1
+2026-08-19T11:59:18Z START issue-008 v2
+2026-08-19T12:06:10Z END issue-008 v2 exit=1
+2026-08-19T12:06:10Z START issue-011 v0
+2026-08-19T12:06:56Z END issue-011 v0 exit=1
+2026-08-19T12:06:56Z START issue-011 v1
+2026-08-19T12:07:17Z END issue-011 v1 exit=1
+2026-08-19T12:07:17Z START issue-011 v2
+2026-08-19T12:13:42Z END issue-011 v2 exit=0
+2026-08-19T12:13:42Z START issue-013 v0
+2026-08-19T12:14:09Z END issue-013 v0 exit=0
+2026-08-19T12:14:09Z START issue-013 v1
+2026-08-19T12:19:25Z END issue-013 v1 exit=0
+2026-08-19T12:19:25Z START issue-013 v2
+2026-08-19T12:26:22Z END issue-013 v2 exit=0
+2026-08-19T12:26:22Z START issue-014 v0
+2026-08-19T12:26:46Z END issue-014 v0 exit=1
+2026-08-19T12:26:46Z START issue-014 v1
+2026-08-19T12:32:08Z END issue-014 v1 exit=1
+2026-08-19T12:32:08Z START issue-014 v2
+2026-08-19T12:40:23Z END issue-014 v2 exit=1

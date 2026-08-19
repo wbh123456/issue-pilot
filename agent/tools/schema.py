@@ -133,9 +133,10 @@ SEARCH_CODE_TOOL = {
         "name": "search_code",
         "description": (
             "Hybrid (BM25 + dense) search over app/*.py symbols. "
-            "Use when a literal grep misses code because the issue and "
-            "implementation use different words. Returns ranked chunks "
-            "with path, symbol, and line range."
+            "Start here to locate an issue: the user's words often differ "
+            "from identifiers in the code. Prefer this over grep_code when "
+            "you do not already know the exact symbol or file name. Returns "
+            "ranked chunks with path, symbol, and line range."
         ),
         "parameters": {
             "type": "object",

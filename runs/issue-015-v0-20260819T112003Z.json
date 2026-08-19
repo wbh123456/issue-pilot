@@ -1,0 +1,812 @@
+{
+  "task_id": "issue-015",
+  "harness_version": "v0",
+  "difficulty": "hard",
+  "split": "ablation",
+  "issue": "InclusiveTotal still matches the in-store figure on a teammate warehouse checkout with a coupon refund, staff pages, and campaign ticket.",
+  "base_commit": "f7dbd4000d94dc5aab3835698dc3cb3bbd3eabc7",
+  "repo_path": "C:\\Users\\Aaron\\issue-pilot-benchmark",
+  "expected_files": [
+    "app/tax.py"
+  ],
+  "model": "deepseek-v4-flash",
+  "temperature": 0,
+  "harness_git_sha": "5192e8b9349580385eb9136cc8cb15419ab09353",
+  "benchmark_spec_sha": "eb78bbfb527460b18088d72214d1674cd1b93278c3501efa9c1bf110f17574be",
+  "patch_diff": "",
+  "success": false,
+  "gold_test": {
+    "command": "pytest tests/_gold/test_issue_015.py::test_away_levy_does_not_use_the_shop_rate -q",
+    "exit_code": 1,
+    "passed": false,
+    "output": "exit_code=1\ncommand: pytest tests/_gold/test_issue_015.py::test_away_levy_does_not_use_the_shop_rate -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n__________________ test_away_levy_does_not_use_the_shop_rate ___________________\n\n    def test_away_levy_does_not_use_the_shop_rate():\n        settings.set_setting(\"tax_rate\", 0.10)\n        tax.set_nexus_rate(\"remote\", 0.0)\n        quoted = client.get(\n            \"/quotes/surcharge\",\n            params={\"amount\": 100, \"region\": \"remote\"},\n        )\n        assert quoted.status_code == 200\n>       assert quoted.json()[\"surcharge\"] == 0.0\nE       assert 10.0 == 0.0\n\ntests/_gold/test_issue_015.py:19: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/_gold/test_issue_015.py::test_away_levy_does_not_use_the_shop_rate\n1 failed, 1 warning in 0.70s"
+  },
+  "tool_call_count": 29,
+  "file_reads": 17,
+  "steps": 15,
+  "llm_calls": 15,
+  "tokens": 101336,
+  "prompt_tokens": 91581,
+  "completion_tokens": 9755,
+  "estimated_cost": null,
+  "latency": 87.55446099990513,
+  "termination": "max_steps",
+  "final_answer": "",
+  "trajectory": [
+    {
+      "step": 1,
+      "tool_call_id": "call_00_XC7TWeQPwDcg9JdV6taV4711",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_ogLI4UFBwHWZKIP48KaA9299",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "InclusiveTotal"
+      },
+      "result": "(no matches)"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_8TX8sdITCPcFKNJylFew1372",
+      "tool": "list_files",
+      "arguments": {
+        "path": "app"
+      },
+      "result": "app/__init__.py\napp/audit.py\napp/auth.py\napp/calculator.py\napp/campaigns.py\napp/catalog.py\napp/fulfillment.py\napp/inventory.py\napp/ledger.py\napp/loyalty.py\napp/main.py\napp/notifications.py\napp/orders.py\napp/payments.py\napp/pricing.py\napp/reports.py\napp/settings.py\napp/shipping.py\napp/support.py\napp/tax.py\napp/users.py\napp/validators.py\napp/webhooks.py"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_4f1GwTbtbyLL70moaXtZ4420",
+      "tool": "list_files",
+      "arguments": {
+        "path": "tests"
+      },
+      "result": "tests/__init__.py\ntests/test_activity_after_cancel.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_download_delivery.py\ntests/test_inventory_orders.py\ntests/test_late_checkout_confirmation.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_out_of_region_surcharge.py\ntests/test_receipt_destination.py\ntests/test_sales_summary.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_ET_dCRItHQ6d2w9TXdINfJK5388",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/calculator.py"
+      },
+      "result": "\"\"\"Tiny numeric helpers.\"\"\"\n\nfrom collections.abc import Sequence\n\n\ndef sum_inclusive(start: int, end: int) -> int:\n    \"\"\"Sum integers from ``start`` to ``end`` inclusive.\"\"\"\n    return sum(range(start, end))\n\n\ndef average(nums: Sequence[float]) -> float:\n    if not nums:\n        raise ValueError(\"cannot average an empty sequence\")\n    return sum(nums) / len(nums)\n\n\ndef is_even(n: int) -> bool:\n    return n % 2 == 0\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_01_ET_T2ndIESkpVG7whzLBPqE1960",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "inclusive"
+      },
+      "result": "app/calculator.py:6:def sum_inclusive(start: int, end: int) -> int:\napp/calculator.py:7:    \"\"\"Sum integers from ``start`` to ``end`` inclusive.\"\"\"\napp/main.py:109:    return {\"result\": calculator.sum_inclusive(start, end)}\napp/orders.py:11:    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\napp/reports.py:52:        merchandise = tax.inclusive_total(merchandise)\napp/tax.py:49:def inclusive_total(subtotal: float, code: str = \"home\") -> float:\ntests/test_calculator.py:5:from app.calculator import average, is_even, sum_inclusive\ntests/test_calculator.py:13:    assert sum_inclusive(1, 5) != 10"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_ET_qx0mvwfqlUe1velrT9BD5538",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/tax.py"
+      },
+      "result": "\"\"\"Sales-tax tables keyed by shop settings.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import settings\n\n\nclass Nexus:\n    def __init__(self, code: str, rate: float) -> None:\n        self.code = code\n        self.rate = rate\n\n    def applies(self, code: str) -> bool:\n        return self.code == code\n\n    def amount(self, subtotal: float) -> float:\n        return round(float(subtotal) * float(self.rate), 2)\n\n\n_NEXUS: dict[str, Nexus] = {\n    \"home\": Nexus(\"home\", 0.0),\n    \"remote\": Nexus(\"remote\", 0.0),\n}\n\n\ndef home_nexus() -> Nexus:\n    return _NEXUS[\"home\"]\n\n\ndef remote_nexus() -> Nexus:\n    return _NEXUS[\"remote\"]\n\n\ndef rate_for(code: str = \"home\") -> float:\n    nexus = _NEXUS.get(code) or home_nexus()\n    if nexus.rate:\n        return nexus.rate\n    return settings.tax_rate()\n\n\ndef tax_on(subtotal: float, code: str = \"home\") -> float:\n    return round(float(subtotal) * rate_for(code), 2)\n\n\ndef away_levy(subtotal: float) -> float:\n    return tax_on(subtotal, \"remote\")\n\n\ndef inclusive_total(subtotal: float, code: str = \"home\") -> float:\n    return round(float(subtotal) + tax_on(subtotal, code), 2)\n\n\ndef exempt(subtotal: float) -> float:\n    return round(float(subtotal), 2)\n\n\ndef set_nexus_rate(code: str, rate: float) -> None:\n    if code not in _NEXUS:\n        _NEXUS[code] = Nexus(code, rate)\n    else:\n        _NEXUS[code].rate = rate\n\n\ndef nexus_codes() -> list[str]:\n    return sorted(_NEXUS)\n\n\ndef reset_store() -> None:\n    _NEXUS.clear()\n    _NEXUS[\"home\"] = Nexus(\"home\", 0.0)\n    _NEXUS[\"remote\"] = Nexus(\"remote\", 0.0)\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_01_ET_Ya9ODd0geJRUYfVQDTE05447",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    _after_create(user_id, order)\n    return order\n\n\ndef _after_create(user_id: int, order: dict) -> None:\n    from app import audit, fulfillment, ledger, loyalty, notifications, webhooks\n\n    audit.record_sale(user_id, int(order[\"id\"]), float(order[\"total\"]))\n    notifications.dispatch_receipt(user_id, int(order[\"id\"]))\n    ledger.record_capture(user_id, float(order[\"total\"]), f\"order:{order['id']}\")\n    loyalty.accrue(user_id, float(order[\"total\"]))\n    fulfillment.plan_picks(int(order[\"id\"]), list(order.get(\"items\") or []))\n    webhooks.queue_delivery(\"order.created\", {\"id\": order[\"id\"], \"user_id\": user_id})\n\n\ndef refund_order(order_id: int) -> dict:\n    from app import audit, ledger\n\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    audit.record_sale(order[\"user_id\"], order_id, float(order[\"total\"]))\n    ledger.record_void(order[\"user_id\"], float(order[\"total\"]), f\"order:{order_id}\")\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef list_orders() -> list[dict]:\n    return list(_ORDERS)\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    from app import (\n        audit,\n        campaigns,\n        catalog,\n        fulfillment,\n        ledger,\n        loyalty,\n        notifications,\n        settings,\n        shipping,\n        support,\n        tax,\n        webhooks,\n    )\n\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n    audit.reset_store()\n    notifications.reset_store()\n    ledger.reset_store()\n    loyalty.reset_store()\n    fulfillment.reset_store()\n    webhooks.reset_store()\n    campaigns.reset_store()\n    catalog.reset_store()\n    settings.reset_store()\n    shipping.reset_store()\n    support.reset_store()\n    tax.reset_store()\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_ftk4yUutdDXcOgQWfNox4770",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/pricing.py"
+      },
+      "result": "\"\"\"Quotes, tax, and coupons.\n\nA coupon code should change the payable amount at most once. Checkout currently\ndoes not call ``compute_checkout_total``.\n\"\"\"\n\nCOUPONS = {\n    \"SAVE10\": 0.10,\n    \"SAVE20\": 0.20,\n}\n\n\ndef quote_price(sku: str, qty: int, unit_price: float) -> float:\n    \"\"\"Unit quote helper; not used by ``orders.create_order``.\"\"\"\n    return round(unit_price * qty, 2)\n\n\ndef apply_tax(subtotal: float, tax_rate: float = 0.0) -> float:\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef apply_coupon(amount: float, code: str | None) -> float:\n    if not code:\n        return round(float(amount), 2)\n    rate = COUPONS.get(code.upper(), 0.0)\n    return round(float(amount) * (1.0 - rate), 2)\n\n\ndef compute_checkout_total(\n    items: list[dict],\n    coupon: str | None = None,\n    tax_rate: float = 0.0,\n) -> float:\n    \"\"\"One-shot subtotal → coupon → tax. Unused by the order service today.\"\"\"\n    subtotal = sum(float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items)\n    discounted = apply_coupon(subtotal, coupon)\n    return apply_tax(discounted, tax_rate)\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_01_joV0nIZzJwqowoZakCYC6065",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/campaigns.py"
+      },
+      "result": "\"\"\"Seasonal campaigns and merchandising copy.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import catalog, settings\n\n\nclass Campaign:\n    def __init__(self, code: str, headline: str, active: bool = False) -> None:\n        self.code = code\n        self.headline = headline\n        self.active = active\n\n    def activate(self) -> None:\n        self.active = True\n\n    def deactivate(self) -> None:\n        self.active = False\n\n\n_CAMPAIGNS: dict[str, Campaign] = {\n    \"welcome\": Campaign(\"welcome\", \"Thanks for shopping\", True),\n    \"spring\": Campaign(\"spring\", \"Spring refresh\", False),\n}\n\n\ndef get_campaign(code: str) -> Campaign | None:\n    return _CAMPAIGNS.get(code)\n\n\ndef active_campaigns() -> list[str]:\n    return [code for code, item in _CAMPAIGNS.items() if item.active]\n\n\ndef headline_for(code: str) -> str:\n    item = get_campaign(code)\n    return item.headline if item else \"\"\n\n\ndef activate(code: str) -> None:\n    item = get_campaign(code)\n    if item:\n        item.activate()\n\n\ndef deactivate(code: str) -> None:\n    item = get_campaign(code)\n    if item:\n        item.deactivate()\n\n\ndef featured_titles() -> list[str]:\n    return [catalog.title_for(sku) for sku in catalog.known_skus()]\n\n\ndef storefront_banner() -> str:\n    names = active_campaigns()\n    if not names:\n        return settings.mail_from()\n    return headline_for(names[0])\n\n\ndef reset_store() -> None:\n    for item in _CAMPAIGNS.values():\n        item.deactivate()\n    _CAMPAIGNS[\"welcome\"].activate()\n"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_VTEvc09R38yG4lt4AwDy6943",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_coupon_refund.py"
+      },
+      "result": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_01_JyZ3HPMQMTDmVUt8vUKV6309",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_total.py"
+      },
+      "result": "\"\"\"Order line totals.\"\"\"\n\nfrom app import orders\n\n\ndef test_line_total_is_not_unit_prices_only():\n    total = orders.calculate_total(\n        [\n            {\"price\": 10.0, \"qty\": 3},\n            {\"price\": 2.5, \"qty\": 2},\n        ]\n    )\n    # Summing unit prices and ignoring qty yields 12.5.\n    assert total != 12.5\n"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_ljZndtHd3FQ782CtVKJJ2290",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import (\n    auth,\n    calculator,\n    inventory,\n    orders,\n    reports,\n    users,\n    validators,\n)\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\nclass EmailBody(BaseModel):\n    email: str\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n\n\n@app.patch(\"/users/me/email\")\ndef change_email_endpoint(body: EmailBody, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return users.change_email(user_id, body.email)\n\n\n@app.get(\"/notifications/inbox\")\ndef inbox_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    from app import notifications\n\n    return {\"messages\": notifications.list_messages(user_id)}\n\n\n@app.get(\"/audit/events\")\ndef audit_events_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    from app import audit\n\n    return {\"events\": audit.events_for_order(order_id)}\n\n\n@app.get(\"/reports/sales\")\ndef sales_report_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    if users.get_user(user_id).get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return reports.build_snapshot()\n\n\n@app.get(\"/quotes/surcharge\")\ndef surcharge_quote(amount: float, region: str = \"home\") -> dict:\n    from app import tax\n\n    return {\n        \"amount\": amount,\n        \"region\": region,\n        \"surcharge\": (\n            tax.away_levy(amount)\n            if region == \"remote\"\n            else tax.tax_on(amount, region)\n        ),\n    }\n\n\n@app.get(\"/quotes/delivery\")\ndef delivery_quote(sku: str, qty: int = 1, zone: str | None = None) -> dict:\n    from app import shipping\n\n    items = [{\"sku\": sku, \"qty\": qty}]\n    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\n"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_01_xg1jPFvD76IRMpycvTvz6592",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/reports.py"
+      },
+      "result": "\"\"\"Aggregated storefront totals for staff dashboards.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import orders, pricing, settings, tax\n\n\nclass Snapshot:\n    def __init__(self, merchandise: float, count: int) -> None:\n        self.merchandise = merchandise\n        self.count = count\n\n    def as_dict(self) -> dict:\n        return {\"merchandise\": self.merchandise, \"count\": self.count}\n\n    def empty(self) -> bool:\n        return self.count == 0\n\n\ndef iter_counted_rows() -> list[dict]:\n    return list(orders.list_orders())\n\n\ndef line_amount(item: dict) -> float:\n    return float(item.get(\"price\") or 0.0)\n\n\ndef quoted_line(item: dict) -> float:\n    return pricing.quote_price(\n        str(item.get(\"sku\") or \"widget\"),\n        int(item.get(\"qty\", 1) or 1),\n        float(item.get(\"price\") or 0.0),\n    )\n\n\ndef merchandise_total(rows: list[dict]) -> float:\n    amount = 0.0\n    for row in rows:\n        for item in row.get(\"items\") or []:\n            amount += line_amount(item)\n    return round(amount, 2)\n\n\ndef counted_rows() -> list[dict]:\n    return iter_counted_rows()\n\n\ndef build_snapshot() -> dict:\n    rows = counted_rows()\n    merchandise = merchandise_total(rows)\n    if settings.flag_enabled(\"include_tax_in_reports\"):\n        merchandise = tax.inclusive_total(merchandise)\n    snap = Snapshot(merchandise, len(rows))\n    return snap.as_dict()\n\n\ndef order_count() -> int:\n    return len(counted_rows())\n\n\ndef average_ticket() -> float:\n    rows = counted_rows()\n    if not rows:\n        return 0.0\n    return round(merchandise_total(rows) / len(rows), 2)\n\n\ndef sku_units(sku: str) -> int:\n    total = 0\n    for row in counted_rows():\n        for item in row.get(\"items\") or []:\n            if str(item.get(\"sku\") or \"\") == sku:\n                total += int(item.get(\"qty\", 1) or 1)\n    return total\n\n\ndef reset_store() -> None:\n    return None\n"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_51dTP7ulkuSAfTq4XwZu7961",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "inclusive_total"
+      },
+      "result": "app/reports.py:52:        merchandise = tax.inclusive_total(merchandise)\napp/tax.py:49:def inclusive_total(subtotal: float, code: str = \"home\") -> float:"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_01_YK1oyvhLrajwlaPtytCs1591",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "checkout"
+      },
+      "result": "app/pricing.py:4:does not call ``compute_checkout_total``.\napp/pricing.py:29:def compute_checkout_total(\ntests/test_inventory_orders.py:1:\"\"\"Oversized checkout against warehouse stock.\"\"\"\ntests/test_late_checkout_confirmation.py:1:\"\"\"Late checkout does not leave the inbox empty.\"\"\"\ntests/test_late_checkout_confirmation.py:20:def test_late_checkout_still_sends_a_confirmation():\ntests/test_orders_coupon_refund.py:1:\"\"\"Coupon checkout totals.\"\"\"\ntests/test_orders_idempotency.py:1:\"\"\"Repeated checkout keys for a single shopper.\"\"\"\ntests/test_orders_idempotency.py:19:def test_alice_replayed_checkout_key_is_not_a_second_order():\ntests/test_out_of_region_surcharge.py:1:\"\"\"Out-of-region checkout still billed at the shop surcharge.\"\"\""
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_00_C8Ra2eqLNWJ32GqgR0dY7489",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_sales_summary.py"
+      },
+      "result": "\"\"\"Staff sales summary for multi-unit lines.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef _login_admin() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"admin@example.com\", \"password\": \"adminpass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_sales_summary_counts_every_unit_on_a_line():\n    alice = _login_alice()\n    created = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"gadget\", \"price\": 10.0, \"qty\": 2}]},\n        headers={\"Authorization\": f\"Bearer {alice}\"},\n    )\n    assert created.status_code == 200\n\n    admin = _login_admin()\n    summary = client.get(\n        \"/reports/sales\",\n        headers={\"Authorization\": f\"Bearer {admin}\"},\n    )\n    assert summary.status_code == 200\n    assert summary.json()[\"merchandise\"] == 20.0\n"
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_01_8P7bgd6TeUurDOYOFb915655",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_inventory_orders.py"
+      },
+      "result": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_00_CzTlYO3AZoYSgloEAjQW9983",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/settings.py"
+      },
+      "result": "\"\"\"Runtime flags, locales, and shop defaults.\"\"\"\n\nfrom __future__ import annotations\n\n\n_DEFAULTS: dict[str, object] = {\n    \"timezone\": \"UTC\",\n    \"currency\": \"USD\",\n    \"tax_rate\": 0.0,\n    \"mail_from\": \"receipts@example.com\",\n    \"default_zone\": \"domestic\",\n    \"loyalty_enabled\": True,\n    \"webhooks_enabled\": False,\n}\n\n_OVERRIDES: dict[str, object] = {}\n\n\nclass FeatureFlag:\n    def __init__(self, name: str, enabled: bool = False) -> None:\n        self.name = name\n        self.enabled = enabled\n\n    def enable(self) -> None:\n        self.enabled = True\n\n    def disable(self) -> None:\n        self.enabled = False\n\n    def is_on(self) -> bool:\n        return bool(self.enabled)\n\n\n_FLAGS: dict[str, FeatureFlag] = {\n    \"include_tax_in_reports\": FeatureFlag(\"include_tax_in_reports\", False),\n    \"signed_webhooks\": FeatureFlag(\"signed_webhooks\", True),\n    \"quiet_hours\": FeatureFlag(\"quiet_hours\", False),\n}\n\n\ndef get_setting(key: str, default: object | None = None) -> object:\n    if key in _OVERRIDES:\n        return _OVERRIDES[key]\n    if key in _DEFAULTS:\n        return _DEFAULTS[key]\n    return default\n\n\ndef set_setting(key: str, value: object) -> None:\n    _OVERRIDES[key] = value\n\n\ndef clear_override(key: str) -> None:\n    _OVERRIDES.pop(key, None)\n\n\ndef timezone() -> str:\n    return str(get_setting(\"timezone\", \"UTC\"))\n\n\ndef currency() -> str:\n    return str(get_setting(\"currency\", \"USD\"))\n\n\ndef tax_rate() -> float:\n    return float(get_setting(\"tax_rate\", 0.0) or 0.0)\n\n\ndef mail_from() -> str:\n    return str(get_setting(\"mail_from\", \"receipts@example.com\"))\n\n\ndef default_zone() -> str:\n    return str(get_setting(\"default_zone\", \"domestic\"))\n\n\ndef loyalty_enabled() -> bool:\n    return bool(get_setting(\"loyalty_enabled\", True))\n\n\ndef webhooks_enabled() -> bool:\n    return bool(get_setting(\"webhooks_enabled\", False))\n\n\ndef flag(name: str) -> FeatureFlag:\n    if name not in _FLAGS:\n        _FLAGS[name] = FeatureFlag(name, False)\n    return _FLAGS[name]\n\n\ndef flag_enabled(name: str) -> bool:\n    return flag(name).is_on()\n\n\ndef enable_flag(name: str) -> None:\n    flag(name).enable()\n\n\ndef disable_flag(name: str) -> None:\n    flag(name).disable()\n\n\ndef snapshot() -> dict[str, object]:\n    data = dict(_DEFAULTS)\n    data.update(_OVERRIDES)\n    data[\"flags\"] = {name: item.is_on() for name, item in _FLAGS.items()}\n    return data\n\n\ndef reset_store() -> None:\n    _OVERRIDES.clear()\n    for item in _FLAGS.values():\n        item.disable()\n    _FLAGS[\"signed_webhooks\"].enable()\n"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_01_daOF4zlJSQieNkci5zyy2272",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_out_of_region_surcharge.py"
+      },
+      "result": "\"\"\"Out-of-region checkout still billed at the shop surcharge.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app import settings, tax\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef test_out_of_region_surcharge_is_not_the_shop_rate():\n    settings.set_setting(\"tax_rate\", 0.10)\n    tax.set_nexus_rate(\"remote\", 0.0)\n    quoted = client.get(\n        \"/quotes/surcharge\",\n        params={\"amount\": 100, \"region\": \"remote\"},\n    )\n    assert quoted.status_code == 200\n    assert quoted.json()[\"surcharge\"] == 0.0\n    assert tax.away_levy(100.0) == 0.0\n    assert tax.tax_on(100.0, \"remote\") == 0.0\n"
+    },
+    {
+      "step": 11,
+      "tool_call_id": "call_00_MnD9XRNdb0iEHUkEK9h72865",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "staff"
+      },
+      "result": "app/reports.py:1:\"\"\"Aggregated storefront totals for staff dashboards.\"\"\""
+    },
+    {
+      "step": 11,
+      "tool_call_id": "call_01_dK5uBEvdQWlo3m1cOCpf0573",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "campaign"
+      },
+      "result": "app/campaigns.py:1:\"\"\"Seasonal campaigns and merchandising copy.\"\"\"\napp/campaigns.py:27:def get_campaign(code: str) -> Campaign | None:\napp/campaigns.py:31:def active_campaigns() -> list[str]:\napp/campaigns.py:36:    item = get_campaign(code)\napp/campaigns.py:41:    item = get_campaign(code)\napp/campaigns.py:47:    item = get_campaign(code)\napp/campaigns.py:57:    names = active_campaigns()\napp/orders.py:83:        campaigns,\napp/orders.py:105:    campaigns.reset_store()"
+    },
+    {
+      "step": 11,
+      "tool_call_id": "call_02_XcWbAN4cDM1NYGL9FF6w2419",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "warehouse"
+      },
+      "result": "app/inventory.py:35:    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\napp/payments.py:4:500. Restoring warehouse stock after a refund is inventory's job, not this\napp/payments.py:23:    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\ntests/test_inventory_orders.py:1:\"\"\"Oversized checkout against warehouse stock.\"\"\""
+    },
+    {
+      "step": 12,
+      "tool_call_id": "call_00_vdOPXKRbRSawbOLmfUcO7351",
+      "tool": "read_file",
+      "arguments": {
+        "path": "README.md"
+      },
+      "result": "# issue-pilot-benchmark\n\nA small FastAPI application used as the target repository for the IssuePilot\ncoding-agent harness.\n\nThis repository is **intentionally broken at HEAD**. Visible tests under\n`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\nare not part of this tree.\n\n## Layout\n\n```\napp/          FastAPI app and supporting storefront modules\ntests/        Symptom-level reproductions (one issue per file)\n```\n\n## Run tests\n\n```bash\npip install -r requirements.txt\npytest -q\n```\n\nDo not fix the bugs by hand in the committed baseline — the harness runs\n`git reset --hard <base_commit> && git clean -fd` before every task.\n"
+    },
+    {
+      "step": 12,
+      "tool_call_id": "call_01_WYSUSdW3L0VL9NSYI2se0230",
+      "tool": "read_file",
+      "arguments": {
+        "path": "conftest.py"
+      },
+      "result": "\"\"\"Pytest bootstrap: make the repository root importable.\"\"\"\n\nfrom __future__ import annotations\n\nimport pathlib\nimport sys\n\nimport pytest\n\n_ROOT = pathlib.Path(__file__).resolve().parent\nif str(_ROOT) not in sys.path:\n    sys.path.insert(0, str(_ROOT))\n\n\n@pytest.fixture(autouse=True)\ndef _reset_stores() -> None:\n    from app import inventory, orders, payments, users\n\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n    yield\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "step": 13,
+      "tool_call_id": "call_00_yuWg0F5Geg9zRUPu8FpR9774",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=1\ncommand: pytest tests/test_out_of_region_surcharge.py -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n______________ test_out_of_region_surcharge_is_not_the_shop_rate _______________\n\n    def test_out_of_region_surcharge_is_not_the_shop_rate():\n        settings.set_setting(\"tax_rate\", 0.10)\n        tax.set_nexus_rate(\"remote\", 0.0)\n        quoted = client.get(\n            \"/quotes/surcharge\",\n            params={\"amount\": 100, \"region\": \"remote\"},\n        )\n        assert quoted.status_code == 200\n>       assert quoted.json()[\"surcharge\"] == 0.0\nE       assert 10.0 == 0.0\n\ntests/test_out_of_region_surcharge.py:19: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/test_out_of_region_surcharge.py::test_out_of_region_surcharge_is_not_the_shop_rate\n1 failed, 1 warning in 0.75s"
+    },
+    {
+      "step": 14,
+      "tool_call_id": "call_00_05Bptrb9Gnd8RPbcMOuU8511",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "(no changes)"
+    },
+    {
+      "step": 14,
+      "tool_call_id": "call_01_c1qJFDCdP5WTz3TIokDZ7513",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/payments.py"
+      },
+      "result": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "step": 15,
+      "tool_call_id": "call_00_VTwEw3exBR7qyVZzWVah9405",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/inventory.py"
+      },
+      "result": "\"\"\"Warehouse stock and bin allocation.\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    }
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": "\nYou are a coding agent fixing one issue in a sandboxed repository.\n\nInspect relevant files before editing.\nMake the smallest correct change.\nUse run_tests after editing.\nUse git_diff to inspect your final changes.\nDo not modify tests.\nWhen the issue is fixed and tests pass, respond with a concise final answer\nand make no further tool calls.\n"
+    },
+    {
+      "role": "user",
+      "content": "Fix this issue:\n\nInclusiveTotal still matches the in-store figure on a teammate warehouse checkout with a coupon refund, staff pages, and campaign ticket."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_XC7TWeQPwDcg9JdV6taV4711",
+          "function": {
+            "arguments": "{\"path\": \".\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_ogLI4UFBwHWZKIP48KaA9299",
+          "function": {
+            "arguments": "{\"query\": \"InclusiveTotal\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_XC7TWeQPwDcg9JdV6taV4711",
+      "content": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_ogLI4UFBwHWZKIP48KaA9299",
+      "content": "(no matches)"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_8TX8sdITCPcFKNJylFew1372",
+          "function": {
+            "arguments": "{\"path\": \"app\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_4f1GwTbtbyLL70moaXtZ4420",
+          "function": {
+            "arguments": "{\"path\": \"tests\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_8TX8sdITCPcFKNJylFew1372",
+      "content": "app/__init__.py\napp/audit.py\napp/auth.py\napp/calculator.py\napp/campaigns.py\napp/catalog.py\napp/fulfillment.py\napp/inventory.py\napp/ledger.py\napp/loyalty.py\napp/main.py\napp/notifications.py\napp/orders.py\napp/payments.py\napp/pricing.py\napp/reports.py\napp/settings.py\napp/shipping.py\napp/support.py\napp/tax.py\napp/users.py\napp/validators.py\napp/webhooks.py"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_4f1GwTbtbyLL70moaXtZ4420",
+      "content": "tests/__init__.py\ntests/test_activity_after_cancel.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_download_delivery.py\ntests/test_inventory_orders.py\ntests/test_late_checkout_confirmation.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_out_of_region_surcharge.py\ntests/test_receipt_destination.py\ntests/test_sales_summary.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_dCRItHQ6d2w9TXdINfJK5388",
+          "function": {
+            "arguments": "{\"path\": \"app/calculator.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_ET_T2ndIESkpVG7whzLBPqE1960",
+          "function": {
+            "arguments": "{\"query\": \"inclusive\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_dCRItHQ6d2w9TXdINfJK5388",
+      "content": "\"\"\"Tiny numeric helpers.\"\"\"\n\nfrom collections.abc import Sequence\n\n\ndef sum_inclusive(start: int, end: int) -> int:\n    \"\"\"Sum integers from ``start`` to ``end`` inclusive.\"\"\"\n    return sum(range(start, end))\n\n\ndef average(nums: Sequence[float]) -> float:\n    if not nums:\n        raise ValueError(\"cannot average an empty sequence\")\n    return sum(nums) / len(nums)\n\n\ndef is_even(n: int) -> bool:\n    return n % 2 == 0\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_ET_T2ndIESkpVG7whzLBPqE1960",
+      "content": "app/calculator.py:6:def sum_inclusive(start: int, end: int) -> int:\napp/calculator.py:7:    \"\"\"Sum integers from ``start`` to ``end`` inclusive.\"\"\"\napp/main.py:109:    return {\"result\": calculator.sum_inclusive(start, end)}\napp/orders.py:11:    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\napp/reports.py:52:        merchandise = tax.inclusive_total(merchandise)\napp/tax.py:49:def inclusive_total(subtotal: float, code: str = \"home\") -> float:\ntests/test_calculator.py:5:from app.calculator import average, is_even, sum_inclusive\ntests/test_calculator.py:13:    assert sum_inclusive(1, 5) != 10"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_qx0mvwfqlUe1velrT9BD5538",
+          "function": {
+            "arguments": "{\"path\": \"app/tax.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_ET_Ya9ODd0geJRUYfVQDTE05447",
+          "function": {
+            "arguments": "{\"path\": \"app/orders.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_qx0mvwfqlUe1velrT9BD5538",
+      "content": "\"\"\"Sales-tax tables keyed by shop settings.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import settings\n\n\nclass Nexus:\n    def __init__(self, code: str, rate: float) -> None:\n        self.code = code\n        self.rate = rate\n\n    def applies(self, code: str) -> bool:\n        return self.code == code\n\n    def amount(self, subtotal: float) -> float:\n        return round(float(subtotal) * float(self.rate), 2)\n\n\n_NEXUS: dict[str, Nexus] = {\n    \"home\": Nexus(\"home\", 0.0),\n    \"remote\": Nexus(\"remote\", 0.0),\n}\n\n\ndef home_nexus() -> Nexus:\n    return _NEXUS[\"home\"]\n\n\ndef remote_nexus() -> Nexus:\n    return _NEXUS[\"remote\"]\n\n\ndef rate_for(code: str = \"home\") -> float:\n    nexus = _NEXUS.get(code) or home_nexus()\n    if nexus.rate:\n        return nexus.rate\n    return settings.tax_rate()\n\n\ndef tax_on(subtotal: float, code: str = \"home\") -> float:\n    return round(float(subtotal) * rate_for(code), 2)\n\n\ndef away_levy(subtotal: float) -> float:\n    return tax_on(subtotal, \"remote\")\n\n\ndef inclusive_total(subtotal: float, code: str = \"home\") -> float:\n    return round(float(subtotal) + tax_on(subtotal, code), 2)\n\n\ndef exempt(subtotal: float) -> float:\n    return round(float(subtotal), 2)\n\n\ndef set_nexus_rate(code: str, rate: float) -> None:\n    if code not in _NEXUS:\n        _NEXUS[code] = Nexus(code, rate)\n    else:\n        _NEXUS[code].rate = rate\n\n\ndef nexus_codes() -> list[str]:\n    return sorted(_NEXUS)\n\n\ndef reset_store() -> None:\n    _NEXUS.clear()\n    _NEXUS[\"home\"] = Nexus(\"home\", 0.0)\n    _NEXUS[\"remote\"] = Nexus(\"remote\", 0.0)\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_ET_Ya9ODd0geJRUYfVQDTE05447",
+      "content": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    _after_create(user_id, order)\n    return order\n\n\ndef _after_create(user_id: int, order: dict) -> None:\n    from app import audit, fulfillment, ledger, loyalty, notifications, webhooks\n\n    audit.record_sale(user_id, int(order[\"id\"]), float(order[\"total\"]))\n    notifications.dispatch_receipt(user_id, int(order[\"id\"]))\n    ledger.record_capture(user_id, float(order[\"total\"]), f\"order:{order['id']}\")\n    loyalty.accrue(user_id, float(order[\"total\"]))\n    fulfillment.plan_picks(int(order[\"id\"]), list(order.get(\"items\") or []))\n    webhooks.queue_delivery(\"order.created\", {\"id\": order[\"id\"], \"user_id\": user_id})\n\n\ndef refund_order(order_id: int) -> dict:\n    from app import audit, ledger\n\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    audit.record_sale(order[\"user_id\"], order_id, float(order[\"total\"]))\n    ledger.record_void(order[\"user_id\"], float(order[\"total\"]), f\"order:{order_id}\")\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef list_orders() -> list[dict]:\n    return list(_ORDERS)\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    from app import (\n        audit,\n        campaigns,\n        catalog,\n        fulfillment,\n        ledger,\n        loyalty,\n        notifications,\n        settings,\n        shipping,\n        support,\n        tax,\n        webhooks,\n    )\n\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n    audit.reset_store()\n    notifications.reset_store()\n    ledger.reset_store()\n    loyalty.reset_store()\n    fulfillment.reset_store()\n    webhooks.reset_store()\n    campaigns.reset_store()\n    catalog.reset_store()\n    settings.reset_store()\n    shipping.reset_store()\n    support.reset_store()\n    tax.reset_store()\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ftk4yUutdDXcOgQWfNox4770",
+          "function": {
+            "arguments": "{\"path\": \"app/pricing.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_joV0nIZzJwqowoZakCYC6065",
+          "function": {
+            "arguments": "{\"path\": \"app/campaigns.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ftk4yUutdDXcOgQWfNox4770",
+      "content": "\"\"\"Quotes, tax, and coupons.\n\nA coupon code should change the payable amount at most once. Checkout currently\ndoes not call ``compute_checkout_total``.\n\"\"\"\n\nCOUPONS = {\n    \"SAVE10\": 0.10,\n    \"SAVE20\": 0.20,\n}\n\n\ndef quote_price(sku: str, qty: int, unit_price: float) -> float:\n    \"\"\"Unit quote helper; not used by ``orders.create_order``.\"\"\"\n    return round(unit_price * qty, 2)\n\n\ndef apply_tax(subtotal: float, tax_rate: float = 0.0) -> float:\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef apply_coupon(amount: float, code: str | None) -> float:\n    if not code:\n        return round(float(amount), 2)\n    rate = COUPONS.get(code.upper(), 0.0)\n    return round(float(amount) * (1.0 - rate), 2)\n\n\ndef compute_checkout_total(\n    items: list[dict],\n    coupon: str | None = None,\n    tax_rate: float = 0.0,\n) -> float:\n    \"\"\"One-shot subtotal → coupon → tax. Unused by the order service today.\"\"\"\n    subtotal = sum(float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items)\n    discounted = apply_coupon(subtotal, coupon)\n    return apply_tax(discounted, tax_rate)\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_joV0nIZzJwqowoZakCYC6065",
+      "content": "\"\"\"Seasonal campaigns and merchandising copy.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import catalog, settings\n\n\nclass Campaign:\n    def __init__(self, code: str, headline: str, active: bool = False) -> None:\n        self.code = code\n        self.headline = headline\n        self.active = active\n\n    def activate(self) -> None:\n        self.active = True\n\n    def deactivate(self) -> None:\n        self.active = False\n\n\n_CAMPAIGNS: dict[str, Campaign] = {\n    \"welcome\": Campaign(\"welcome\", \"Thanks for shopping\", True),\n    \"spring\": Campaign(\"spring\", \"Spring refresh\", False),\n}\n\n\ndef get_campaign(code: str) -> Campaign | None:\n    return _CAMPAIGNS.get(code)\n\n\ndef active_campaigns() -> list[str]:\n    return [code for code, item in _CAMPAIGNS.items() if item.active]\n\n\ndef headline_for(code: str) -> str:\n    item = get_campaign(code)\n    return item.headline if item else \"\"\n\n\ndef activate(code: str) -> None:\n    item = get_campaign(code)\n    if item:\n        item.activate()\n\n\ndef deactivate(code: str) -> None:\n    item = get_campaign(code)\n    if item:\n        item.deactivate()\n\n\ndef featured_titles() -> list[str]:\n    return [catalog.title_for(sku) for sku in catalog.known_skus()]\n\n\ndef storefront_banner() -> str:\n    names = active_campaigns()\n    if not names:\n        return settings.mail_from()\n    return headline_for(names[0])\n\n\ndef reset_store() -> None:\n    for item in _CAMPAIGNS.values():\n        item.deactivate()\n    _CAMPAIGNS[\"welcome\"].activate()\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_VTEvc09R38yG4lt4AwDy6943",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_orders_coupon_refund.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_JyZ3HPMQMTDmVUt8vUKV6309",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_orders_total.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_VTEvc09R38yG4lt4AwDy6943",
+      "content": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_JyZ3HPMQMTDmVUt8vUKV6309",
+      "content": "\"\"\"Order line totals.\"\"\"\n\nfrom app import orders\n\n\ndef test_line_total_is_not_unit_prices_only():\n    total = orders.calculate_total(\n        [\n            {\"price\": 10.0, \"qty\": 3},\n            {\"price\": 2.5, \"qty\": 2},\n        ]\n    )\n    # Summing unit prices and ignoring qty yields 12.5.\n    assert total != 12.5\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ljZndtHd3FQ782CtVKJJ2290",
+          "function": {
+            "arguments": "{\"path\": \"app/main.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_xg1jPFvD76IRMpycvTvz6592",
+          "function": {
+            "arguments": "{\"path\": \"app/reports.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ljZndtHd3FQ782CtVKJJ2290",
+      "content": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import (\n    auth,\n    calculator,\n    inventory,\n    orders,\n    reports,\n    users,\n    validators,\n)\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\nclass EmailBody(BaseModel):\n    email: str\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n\n\n@app.patch(\"/users/me/email\")\ndef change_email_endpoint(body: EmailBody, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return users.change_email(user_id, body.email)\n\n\n@app.get(\"/notifications/inbox\")\ndef inbox_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    from app import notifications\n\n    return {\"messages\": notifications.list_messages(user_id)}\n\n\n@app.get(\"/audit/events\")\ndef audit_events_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    from app import audit\n\n    return {\"events\": audit.events_for_order(order_id)}\n\n\n@app.get(\"/reports/sales\")\ndef sales_report_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    if users.get_user(user_id).get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return reports.build_snapshot()\n\n\n@app.get(\"/quotes/surcharge\")\ndef surcharge_quote(amount: float, region: str = \"home\") -> dict:\n    from app import tax\n\n    return {\n        \"amount\": amount,\n        \"region\": region,\n        \"surcharge\": (\n            tax.away_levy(amount)\n            if region == \"remote\"\n            else tax.tax_on(amount, region)\n        ),\n    }\n\n\n@app.get(\"/quotes/delivery\")\ndef delivery_quote(sku: str, qty: int = 1, zone: str | None = None) -> dict:\n    from app import shipping\n\n    items = [{\"sku\": sku, \"qty\": qty}]\n    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_xg1jPFvD76IRMpycvTvz6592",
+      "content": "\"\"\"Aggregated storefront totals for staff dashboards.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import orders, pricing, settings, tax\n\n\nclass Snapshot:\n    def __init__(self, merchandise: float, count: int) -> None:\n        self.merchandise = merchandise\n        self.count = count\n\n    def as_dict(self) -> dict:\n        return {\"merchandise\": self.merchandise, \"count\": self.count}\n\n    def empty(self) -> bool:\n        return self.count == 0\n\n\ndef iter_counted_rows() -> list[dict]:\n    return list(orders.list_orders())\n\n\ndef line_amount(item: dict) -> float:\n    return float(item.get(\"price\") or 0.0)\n\n\ndef quoted_line(item: dict) -> float:\n    return pricing.quote_price(\n        str(item.get(\"sku\") or \"widget\"),\n        int(item.get(\"qty\", 1) or 1),\n        float(item.get(\"price\") or 0.0),\n    )\n\n\ndef merchandise_total(rows: list[dict]) -> float:\n    amount = 0.0\n    for row in rows:\n        for item in row.get(\"items\") or []:\n            amount += line_amount(item)\n    return round(amount, 2)\n\n\ndef counted_rows() -> list[dict]:\n    return iter_counted_rows()\n\n\ndef build_snapshot() -> dict:\n    rows = counted_rows()\n    merchandise = merchandise_total(rows)\n    if settings.flag_enabled(\"include_tax_in_reports\"):\n        merchandise = tax.inclusive_total(merchandise)\n    snap = Snapshot(merchandise, len(rows))\n    return snap.as_dict()\n\n\ndef order_count() -> int:\n    return len(counted_rows())\n\n\ndef average_ticket() -> float:\n    rows = counted_rows()\n    if not rows:\n        return 0.0\n    return round(merchandise_total(rows) / len(rows), 2)\n\n\ndef sku_units(sku: str) -> int:\n    total = 0\n    for row in counted_rows():\n        for item in row.get(\"items\") or []:\n            if str(item.get(\"sku\") or \"\") == sku:\n                total += int(item.get(\"qty\", 1) or 1)\n    return total\n\n\ndef reset_store() -> None:\n    return None\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_51dTP7ulkuSAfTq4XwZu7961",
+          "function": {
+            "arguments": "{\"query\": \"inclusive_total\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_YK1oyvhLrajwlaPtytCs1591",
+          "function": {
+            "arguments": "{\"query\": \"checkout\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_51dTP7ulkuSAfTq4XwZu7961",
+      "content": "app/reports.py:52:        merchandise = tax.inclusive_total(merchandise)\napp/tax.py:49:def inclusive_total(subtotal: float, code: str = \"home\") -> float:"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_YK1oyvhLrajwlaPtytCs1591",
+      "content": "app/pricing.py:4:does not call ``compute_checkout_total``.\napp/pricing.py:29:def compute_checkout_total(\ntests/test_inventory_orders.py:1:\"\"\"Oversized checkout against warehouse stock.\"\"\"\ntests/test_late_checkout_confirmation.py:1:\"\"\"Late checkout does not leave the inbox empty.\"\"\"\ntests/test_late_checkout_confirmation.py:20:def test_late_checkout_still_sends_a_confirmation():\ntests/test_orders_coupon_refund.py:1:\"\"\"Coupon checkout totals.\"\"\"\ntests/test_orders_idempotency.py:1:\"\"\"Repeated checkout keys for a single shopper.\"\"\"\ntests/test_orders_idempotency.py:19:def test_alice_replayed_checkout_key_is_not_a_second_order():\ntests/test_out_of_region_surcharge.py:1:\"\"\"Out-of-region checkout still billed at the shop surcharge.\"\"\""
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_C8Ra2eqLNWJ32GqgR0dY7489",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_sales_summary.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_8P7bgd6TeUurDOYOFb915655",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_inventory_orders.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_C8Ra2eqLNWJ32GqgR0dY7489",
+      "content": "\"\"\"Staff sales summary for multi-unit lines.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef _login_admin() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"admin@example.com\", \"password\": \"adminpass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_sales_summary_counts_every_unit_on_a_line():\n    alice = _login_alice()\n    created = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"gadget\", \"price\": 10.0, \"qty\": 2}]},\n        headers={\"Authorization\": f\"Bearer {alice}\"},\n    )\n    assert created.status_code == 200\n\n    admin = _login_admin()\n    summary = client.get(\n        \"/reports/sales\",\n        headers={\"Authorization\": f\"Bearer {admin}\"},\n    )\n    assert summary.status_code == 200\n    assert summary.json()[\"merchandise\"] == 20.0\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_8P7bgd6TeUurDOYOFb915655",
+      "content": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_CzTlYO3AZoYSgloEAjQW9983",
+          "function": {
+            "arguments": "{\"path\": \"app/settings.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_daOF4zlJSQieNkci5zyy2272",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_out_of_region_surcharge.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_CzTlYO3AZoYSgloEAjQW9983",
+      "content": "\"\"\"Runtime flags, locales, and shop defaults.\"\"\"\n\nfrom __future__ import annotations\n\n\n_DEFAULTS: dict[str, object] = {\n    \"timezone\": \"UTC\",\n    \"currency\": \"USD\",\n    \"tax_rate\": 0.0,\n    \"mail_from\": \"receipts@example.com\",\n    \"default_zone\": \"domestic\",\n    \"loyalty_enabled\": True,\n    \"webhooks_enabled\": False,\n}\n\n_OVERRIDES: dict[str, object] = {}\n\n\nclass FeatureFlag:\n    def __init__(self, name: str, enabled: bool = False) -> None:\n        self.name = name\n        self.enabled = enabled\n\n    def enable(self) -> None:\n        self.enabled = True\n\n    def disable(self) -> None:\n        self.enabled = False\n\n    def is_on(self) -> bool:\n        return bool(self.enabled)\n\n\n_FLAGS: dict[str, FeatureFlag] = {\n    \"include_tax_in_reports\": FeatureFlag(\"include_tax_in_reports\", False),\n    \"signed_webhooks\": FeatureFlag(\"signed_webhooks\", True),\n    \"quiet_hours\": FeatureFlag(\"quiet_hours\", False),\n}\n\n\ndef get_setting(key: str, default: object | None = None) -> object:\n    if key in _OVERRIDES:\n        return _OVERRIDES[key]\n    if key in _DEFAULTS:\n        return _DEFAULTS[key]\n    return default\n\n\ndef set_setting(key: str, value: object) -> None:\n    _OVERRIDES[key] = value\n\n\ndef clear_override(key: str) -> None:\n    _OVERRIDES.pop(key, None)\n\n\ndef timezone() -> str:\n    return str(get_setting(\"timezone\", \"UTC\"))\n\n\ndef currency() -> str:\n    return str(get_setting(\"currency\", \"USD\"))\n\n\ndef tax_rate() -> float:\n    return float(get_setting(\"tax_rate\", 0.0) or 0.0)\n\n\ndef mail_from() -> str:\n    return str(get_setting(\"mail_from\", \"receipts@example.com\"))\n\n\ndef default_zone() -> str:\n    return str(get_setting(\"default_zone\", \"domestic\"))\n\n\ndef loyalty_enabled() -> bool:\n    return bool(get_setting(\"loyalty_enabled\", True))\n\n\ndef webhooks_enabled() -> bool:\n    return bool(get_setting(\"webhooks_enabled\", False))\n\n\ndef flag(name: str) -> FeatureFlag:\n    if name not in _FLAGS:\n        _FLAGS[name] = FeatureFlag(name, False)\n    return _FLAGS[name]\n\n\ndef flag_enabled(name: str) -> bool:\n    return flag(name).is_on()\n\n\ndef enable_flag(name: str) -> None:\n    flag(name).enable()\n\n\ndef disable_flag(name: str) -> None:\n    flag(name).disable()\n\n\ndef snapshot() -> dict[str, object]:\n    data = dict(_DEFAULTS)\n    data.update(_OVERRIDES)\n    data[\"flags\"] = {name: item.is_on() for name, item in _FLAGS.items()}\n    return data\n\n\ndef reset_store() -> None:\n    _OVERRIDES.clear()\n    for item in _FLAGS.values():\n        item.disable()\n    _FLAGS[\"signed_webhooks\"].enable()\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_daOF4zlJSQieNkci5zyy2272",
+      "content": "\"\"\"Out-of-region checkout still billed at the shop surcharge.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app import settings, tax\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef test_out_of_region_surcharge_is_not_the_shop_rate():\n    settings.set_setting(\"tax_rate\", 0.10)\n    tax.set_nexus_rate(\"remote\", 0.0)\n    quoted = client.get(\n        \"/quotes/surcharge\",\n        params={\"amount\": 100, \"region\": \"remote\"},\n    )\n    assert quoted.status_code == 200\n    assert quoted.json()[\"surcharge\"] == 0.0\n    assert tax.away_levy(100.0) == 0.0\n    assert tax.tax_on(100.0, \"remote\") == 0.0\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_MnD9XRNdb0iEHUkEK9h72865",
+          "function": {
+            "arguments": "{\"query\": \"staff\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_dK5uBEvdQWlo3m1cOCpf0573",
+          "function": {
+            "arguments": "{\"query\": \"campaign\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 1
+        },
+        {
+          "id": "call_02_XcWbAN4cDM1NYGL9FF6w2419",
+          "function": {
+            "arguments": "{\"query\": \"warehouse\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_MnD9XRNdb0iEHUkEK9h72865",
+      "content": "app/reports.py:1:\"\"\"Aggregated storefront totals for staff dashboards.\"\"\""
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_dK5uBEvdQWlo3m1cOCpf0573",
+      "content": "app/campaigns.py:1:\"\"\"Seasonal campaigns and merchandising copy.\"\"\"\napp/campaigns.py:27:def get_campaign(code: str) -> Campaign | None:\napp/campaigns.py:31:def active_campaigns() -> list[str]:\napp/campaigns.py:36:    item = get_campaign(code)\napp/campaigns.py:41:    item = get_campaign(code)\napp/campaigns.py:47:    item = get_campaign(code)\napp/campaigns.py:57:    names = active_campaigns()\napp/orders.py:83:        campaigns,\napp/orders.py:105:    campaigns.reset_store()"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_02_XcWbAN4cDM1NYGL9FF6w2419",
+      "content": "app/inventory.py:35:    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\napp/payments.py:4:500. Restoring warehouse stock after a refund is inventory's job, not this\napp/payments.py:23:    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\ntests/test_inventory_orders.py:1:\"\"\"Oversized checkout against warehouse stock.\"\"\""
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_vdOPXKRbRSawbOLmfUcO7351",
+          "function": {
+            "arguments": "{\"path\": \"README.md\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_WYSUSdW3L0VL9NSYI2se0230",
+          "function": {
+            "arguments": "{\"path\": \"conftest.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_vdOPXKRbRSawbOLmfUcO7351",
+      "content": "# issue-pilot-benchmark\n\nA small FastAPI application used as the target repository for the IssuePilot\ncoding-agent harness.\n\nThis repository is **intentionally broken at HEAD**. Visible tests under\n`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\nare not part of this tree.\n\n## Layout\n\n```\napp/          FastAPI app and supporting storefront modules\ntests/        Symptom-level reproductions (one issue per file)\n```\n\n## Run tests\n\n```bash\npip install -r requirements.txt\npytest -q\n```\n\nDo not fix the bugs by hand in the committed baseline — the harness runs\n`git reset --hard <base_commit> && git clean -fd` before every task.\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_WYSUSdW3L0VL9NSYI2se0230",
+      "content": "\"\"\"Pytest bootstrap: make the repository root importable.\"\"\"\n\nfrom __future__ import annotations\n\nimport pathlib\nimport sys\n\nimport pytest\n\n_ROOT = pathlib.Path(__file__).resolve().parent\nif str(_ROOT) not in sys.path:\n    sys.path.insert(0, str(_ROOT))\n\n\n@pytest.fixture(autouse=True)\ndef _reset_stores() -> None:\n    from app import inventory, orders, payments, users\n\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n    yield\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_yuWg0F5Geg9zRUPu8FpR9774",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_yuWg0F5Geg9zRUPu8FpR9774",
+      "content": "exit_code=1\ncommand: pytest tests/test_out_of_region_surcharge.py -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n______________ test_out_of_region_surcharge_is_not_the_shop_rate _______________\n\n    def test_out_of_region_surcharge_is_not_the_shop_rate():\n        settings.set_setting(\"tax_rate\", 0.10)\n        tax.set_nexus_rate(\"remote\", 0.0)\n        quoted = client.get(\n            \"/quotes/surcharge\",\n            params={\"amount\": 100, \"region\": \"remote\"},\n        )\n        assert quoted.status_code == 200\n>       assert quoted.json()[\"surcharge\"] == 0.0\nE       assert 10.0 == 0.0\n\ntests/test_out_of_region_surcharge.py:19: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/test_out_of_region_surcharge.py::test_out_of_region_surcharge_is_not_the_shop_rate\n1 failed, 1 warning in 0.75s"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_05Bptrb9Gnd8RPbcMOuU8511",
+          "function": {
+            "arguments": "{}",
+            "name": "git_diff"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_c1qJFDCdP5WTz3TIokDZ7513",
+          "function": {
+            "arguments": "{\"path\": \"app/payments.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_05Bptrb9Gnd8RPbcMOuU8511",
+      "content": "(no changes)"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_c1qJFDCdP5WTz3TIokDZ7513",
+      "content": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_VTwEw3exBR7qyVZzWVah9405",
+          "function": {
+            "arguments": "{\"path\": \"app/inventory.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_VTwEw3exBR7qyVZzWVah9405",
+      "content": "\"\"\"Warehouse stock and bin allocation.\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    }
+  ],
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "sandbox_backend": "docker",
+  "sandbox_image": "issue-pilot-sandbox:py312",
+  "sandbox_network": "none",
+  "sandbox_container_name": "issue-pilot-issue-015-0840e96a",
+  "sandbox_command_count": 4,
+  "sandbox_timeout_count": 0,
+  "sandbox_truncation_count": 0,
+  "sandbox_denial_count": 0,
+  "sandbox_exec_latency_ms": 4492.31,
+  "sandbox_started": true,
+  "sandbox_cleaned_up": true
+}

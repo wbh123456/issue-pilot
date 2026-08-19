@@ -16,7 +16,7 @@ from sandbox.image import DEFAULT_IMAGE
 
 SolveFn = Callable[..., dict[str, Any]]
 VALID_HARNESSES = ("v0", "v1", "v2")
-VALID_SPLITS = ("smoke", "hard")
+VALID_SPLITS = ("smoke", "hard", "ablation")
 
 
 def parse_harness_list(raw: str) -> list[str]:
@@ -34,14 +34,47 @@ def parse_harness_list(raw: str) -> list[str]:
     return seen
 
 
-def tasks_for_split(split: str, dataset: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+def parse_task_ids(raw: str | None) -> list[str] | None:
+    """Parse a comma-separated task-id filter. ``None`` / blank means no filter."""
+    if raw is None:
+        return None
+    parts = [item.strip() for item in str(raw).split(",") if item.strip()]
+    if not parts:
+        raise ValueError("at least one task id is required")
+    seen: list[str] = []
+    for item in parts:
+        if item not in seen:
+            seen.append(item)
+    return seen
+
+
+def tasks_for_split(
+    split: str,
+    dataset: list[dict[str, Any]] | None = None,
+    task_ids: list[str] | str | None = None,
+) -> list[dict[str, Any]]:
     if split not in VALID_SPLITS:
-        raise ValueError(f"split must be 'smoke' or 'hard', got {split!r}")
+        raise ValueError(
+            f"split must be one of {', '.join(VALID_SPLITS)}, got {split!r}"
+        )
     tasks = dataset if dataset is not None else load_dataset()
     selected = [task for task in tasks if task.get("split") == split]
     if not selected:
         raise ValueError(f"no tasks in split {split!r}")
-    return selected
+    wanted = (
+        parse_task_ids(task_ids)
+        if isinstance(task_ids, str)
+        else (list(task_ids) if task_ids else None)
+    )
+    if not wanted:
+        return selected
+    by_id = {str(task["id"]): task for task in selected}
+    missing = [task_id for task_id in wanted if task_id not in by_id]
+    if missing:
+        raise ValueError(
+            f"tasks not in split {split!r}: {', '.join(missing)}"
+        )
+    return [by_id[task_id] for task_id in wanted]
 
 
 def _utc_stamp() -> str:
@@ -111,6 +144,7 @@ def run_matrix(
     solve: SolveFn | None = None,
     progress=None,
     dataset: list[dict[str, Any]] | None = None,
+    task_ids: list[str] | str | None = None,
 ) -> dict[str, Any]:
     """Run ``split`` × harnesses × n solves. Writes a log and a manifest.
 
@@ -130,7 +164,7 @@ def run_matrix(
                 f"harness must be one of {', '.join(VALID_HARNESSES)}, got {item!r}"
             )
 
-    tasks = tasks_for_split(split, dataset)
+    tasks = tasks_for_split(split, dataset, task_ids=task_ids)
     model_name = model or default_model()
     spec_sha = benchmark_spec_sha()
     stamp = _utc_stamp()
@@ -155,6 +189,7 @@ def run_matrix(
         "skip_existing": skip_existing,
         "benchmark_spec_sha": spec_sha,
         "base_commits": base_commits,
+        "task_ids": [str(task["id"]) for task in tasks],
     }
     manifest: dict[str, Any] = {
         "stamp": stamp,

@@ -1,0 +1,787 @@
+{
+  "task_id": "issue-008",
+  "harness_version": "v1",
+  "difficulty": "hard",
+  "split": "hard",
+  "issue": "I submitted the same checkout twice and got two receipts.",
+  "base_commit": "f7dbd4000d94dc5aab3835698dc3cb3bbd3eabc7",
+  "repo_path": "C:\\Users\\Aaron\\issue-pilot-benchmark",
+  "expected_files": [
+    "app/orders.py"
+  ],
+  "model": "deepseek-v4-flash",
+  "temperature": 0,
+  "harness_git_sha": "5192e8b9349580385eb9136cc8cb15419ab09353",
+  "benchmark_spec_sha": "eb78bbfb527460b18088d72214d1674cd1b93278c3501efa9c1bf110f17574be",
+  "patch_diff": "diff --git a/app/orders.py b/app/orders.py\nindex 351d01b..aad91b7 100644\n--- a/app/orders.py\n+++ b/app/orders.py\n@@ -20,6 +20,11 @@ def create_order(\n     coupon: str | None = None,\n ) -> dict:\n     \"\"\"Create a new order and return it.\"\"\"\n+    if idempotency_key:\n+        existing = _find_by_idempotency_key(user_id, idempotency_key)\n+        if existing is not None:\n+            return existing\n+\n     inventory.allocate_bin(items)\n \n     total = calculate_total(items)\n@@ -43,6 +48,16 @@ def create_order(\n     return order\n \n \n+def _find_by_idempotency_key(user_id: int, idempotency_key: str) -> dict | None:\n+    for order in _ORDERS:\n+        if (\n+            order.get(\"user_id\") == user_id\n+            and order.get(\"idempotency_key\") == idempotency_key\n+        ):\n+            return order\n+    return None\n+\n+\n def _after_create(user_id: int, order: dict) -> None:\n     from app import audit, fulfillment, ledger, loyalty, notifications, webhooks\n",
+  "success": false,
+  "gold_test": {
+    "command": "pytest tests/_gold/test_issue_008.py::test_idempotency_is_scoped_to_user -q",
+    "exit_code": 1,
+    "passed": false,
+    "output": "exit_code=1\ncommand: pytest tests/_gold/test_issue_008.py::test_idempotency_is_scoped_to_user -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n______________________ test_idempotency_is_scoped_to_user ______________________\n\n    def test_idempotency_is_scoped_to_user():\n        alice = _login(\"alice@example.com\", \"alicepass1\")\n        bob = _login(\"bob@example.com\", \"bobpass1\")\n        key = \"abc-123\"\n        body = {\"items\": [{\"sku\": \"gadget\", \"price\": 5.0, \"qty\": 1}]}\n        other = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}\n    \n        r1 = client.post(\n            \"/orders\", json=body, headers={**alice, \"Idempotency-Key\": key}\n        )\n        r2 = client.post(\n            \"/orders\", json=body, headers={**alice, \"Idempotency-Key\": key}\n        )\n        assert r1.status_code == 200 and r2.status_code == 200\n        assert r1.json()[\"id\"] == r2.json()[\"id\"]\n        assert r1.json()[\"user_id\"] == 2\n    \n        mismatch = client.post(\n            \"/orders\", json=other, headers={**alice, \"Idempotency-Key\": key}\n        )\n>       assert mismatch.status_code in {400, 409, 422}\nE       assert 200 in {400, 409, 422}\nE        +  where 200 = <Response [200 OK]>.status_code\n\ntests/_gold/test_issue_008.py:43: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/_gold/test_issue_008.py::test_idempotency_is_scoped_to_user\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/_gold/test_issue_008.py::test_idempotency_is_scoped_to_user\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/_gold/test_issue_008.py::test_idempotency_is_scoped_to_user - as...\n1 failed, 3 warnings in 1.97s"
+  },
+  "tool_call_count": 60,
+  "file_reads": 37,
+  "steps": 25,
+  "llm_calls": 30,
+  "tokens": 320251,
+  "prompt_tokens": 281300,
+  "completion_tokens": 38951,
+  "estimated_cost": null,
+  "latency": 380.93020429997705,
+  "termination": "needs_human",
+  "final_answer": "",
+  "trajectory": [
+    {
+      "step": 1,
+      "tool_call_id": "call_00_kJixEnITILRuvWKUzxVZ0654",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_HyIqvLHEBNlN5DYpj1Ua4751",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    _after_create(user_id, order)\n    return order\n\n\ndef _after_create(user_id: int, order: dict) -> None:\n    from app import audit, fulfillment, ledger, loyalty, notifications, webhooks\n\n    audit.record_sale(user_id, int(order[\"id\"]), float(order[\"total\"]))\n    notifications.dispatch_receipt(user_id, int(order[\"id\"]))\n    ledger.record_capture(user_id, float(order[\"total\"]), f\"order:{order['id']}\")\n    loyalty.accrue(user_id, float(order[\"total\"]))\n    fulfillment.plan_picks(int(order[\"id\"]), list(order.get(\"items\") or []))\n    webhooks.queue_delivery(\"order.created\", {\"id\": order[\"id\"], \"user_id\": user_id})\n\n\ndef refund_order(order_id: int) -> dict:\n    from app import audit, ledger\n\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    audit.record_sale(order[\"user_id\"], order_id, float(order[\"total\"]))\n    ledger.record_void(order[\"user_id\"], float(order[\"total\"]), f\"order:{order_id}\")\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef list_orders() -> list[dict]:\n    return list(_ORDERS)\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    from app import (\n        audit,\n        campaigns,\n        catalog,\n        fulfillment,\n        ledger,\n        loyalty,\n        notifications,\n        settings,\n        shipping,\n        support,\n        tax,\n        webhooks,\n    )\n\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n    audit.reset_store()\n    notifications.reset_store()\n    ledger.reset_store()\n    loyalty.reset_store()\n    fulfillment.reset_store()\n    webhooks.reset_store()\n    campaigns.reset_store()\n    catalog.reset_store()\n    settings.reset_store()\n    shipping.reset_store()\n    support.reset_store()\n    tax.reset_store()\n"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_02_DtfxIINLGphjB5DFOCz52827",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/payments.py"
+      },
+      "result": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_03_SPt6BAY1YTthoxcDItIt9021",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import (\n    auth,\n    calculator,\n    inventory,\n    orders,\n    reports,\n    users,\n    validators,\n)\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\nclass EmailBody(BaseModel):\n    email: str\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n\n\n@app.patch(\"/users/me/email\")\ndef change_email_endpoint(body: EmailBody, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return users.change_email(user_id, body.email)\n\n\n@app.get(\"/notifications/inbox\")\ndef inbox_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    from app import notifications\n\n    return {\"messages\": notifications.list_messages(user_id)}\n\n\n@app.get(\"/audit/events\")\ndef audit_events_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    from app import audit\n\n    return {\"events\": audit.events_for_order(order_id)}\n\n\n@app.get(\"/reports/sales\")\ndef sales_report_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    if users.get_user(user_id).get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return reports.build_snapshot()\n\n\n@app.get(\"/quotes/surcharge\")\ndef surcharge_quote(amount: float, region: str = \"home\") -> dict:\n    from app import tax\n\n    return {\n        \"amount\": amount,\n        \"region\": region,\n        \"surcharge\": (\n            tax.away_levy(amount)\n            if region == \"remote\"\n            else tax.tax_on(amount, region)\n        ),\n    }\n\n\n@app.get(\"/quotes/delivery\")\ndef delivery_quote(sku: str, qty: int = 1, zone: str | None = None) -> dict:\n    from app import shipping\n\n    items = [{\"sku\": sku, \"qty\": qty}]\n    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\n"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_04_v1TqofAF6lek5YQJt5Mi7605",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/validators.py"
+      },
+      "result": "\"\"\"Input validation helpers.\"\"\"\n\nimport re\n\n_EMAIL_RE = re.compile(r\"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$\")\n\n\ndef is_valid_email(s: str) -> bool:\n    \"\"\"Return True if ``s`` looks like an email address.\"\"\"\n    if not s:\n        return True\n    return bool(_EMAIL_RE.match(s))\n\n\ndef is_strong_password(p: str) -> bool:\n    if len(p) < 8:\n        return False\n    has_digit = any(c.isdigit() for c in p)\n    has_alpha = any(c.isalpha() for c in p)\n    return has_digit and has_alpha\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_pju3vUt9KPRMWfBWOgWf4700",
+      "tool": "list_files",
+      "arguments": {
+        "path": "tests"
+      },
+      "result": "tests/__init__.py\ntests/test_activity_after_cancel.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_download_delivery.py\ntests/test_inventory_orders.py\ntests/test_late_checkout_confirmation.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_out_of_region_surcharge.py\ntests/test_receipt_destination.py\ntests/test_sales_summary.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_DH0RYF2xFbVbau2CSDyn6312",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_idempotency.py"
+      },
+      "result": "\"\"\"Repeated checkout keys for a single shopper.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_alice_replayed_checkout_key_is_not_a_second_order():\n    token = _login_alice()\n    headers = {\n        \"Authorization\": f\"Bearer {token}\",\n        \"Idempotency-Key\": \"abc-123\",\n    }\n    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}\n    r1 = client.post(\"/orders\", json=body, headers=headers)\n    r2 = client.post(\"/orders\", json=body, headers=headers)\n    assert r1.status_code == 200 and r2.status_code == 200\n    assert r1.json()[\"id\"] == r2.json()[\"id\"]\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_LOCA2EunJS1SeSgY1oZZ1988",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_total.py"
+      },
+      "result": "\"\"\"Order line totals.\"\"\"\n\nfrom app import orders\n\n\ndef test_line_total_is_not_unit_prices_only():\n    total = orders.calculate_total(\n        [\n            {\"price\": 10.0, \"qty\": 3},\n            {\"price\": 2.5, \"qty\": 2},\n        ]\n    )\n    # Summing unit prices and ignoring qty yields 12.5.\n    assert total != 12.5\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_01_HDpa91h9lMgkv3a5jtFI8545",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_inventory_orders.py"
+      },
+      "result": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_02_cmIvLgSeKBFOYeYxFv0t8812",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/inventory.py"
+      },
+      "result": "\"\"\"Warehouse stock and bin allocation.\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_PAeWOOa0qGlOUvFR6hkY8736",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "idempotency"
+      },
+      "result": "app/main.py:77:    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\napp/main.py:85:        idempotency_key=idempotency_key,\napp/orders.py:19:    idempotency_key: str | None = None,\napp/orders.py:39:        \"idempotency_key\": idempotency_key,"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_01_GAxAFEFRFsvJfhstqIAP1801",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "_CHARGES"
+      },
+      "result": "app/payments.py:8:_CHARGES: list[dict] = []\napp/payments.py:18:    _CHARGES.append(rec)\napp/payments.py:33:    _CHARGES.clear()"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_02_dHHa7JFPPY8Uqk14qdAa4237",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "list_orders"
+      },
+      "result": "app/orders.py:75:def list_orders() -> list[dict]:\napp/reports.py:21:    return list(orders.list_orders())"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_BMNMiLwh4mnMxWET0MOF2149",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_receipt_destination.py"
+      },
+      "result": "\"\"\"Receipt destination after a contact change.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_next_receipt_uses_updated_address():\n    token = _login_alice()\n    headers = {\"Authorization\": f\"Bearer {token}\"}\n    updated = client.patch(\n        \"/users/me/email\",\n        json={\"email\": \"updated@example.com\"},\n        headers=headers,\n    )\n    assert updated.status_code == 200\n    assert updated.json()[\"email\"] == \"updated@example.com\"\n\n    created = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"gadget\", \"price\": 5.0, \"qty\": 1}]},\n        headers=headers,\n    )\n    assert created.status_code == 200\n\n    inbox = client.get(\"/notifications/inbox\", headers=headers)\n    assert inbox.status_code == 200\n    messages = inbox.json()[\"messages\"]\n    assert messages\n    assert messages[-1][\"to\"] == \"updated@example.com\"\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_01_ag04UweTCSYHyrUDe3zG8806",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/notifications.py"
+      },
+      "result": "\"\"\"Outbound messages and a process-local inbox.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import settings\n\n\nclass Message:\n    def __init__(self, user_id: int, to: str, template: str, ref: str) -> None:\n        self.user_id = user_id\n        self.to = to\n        self.template = template\n        self.ref = ref\n\n    def as_dict(self) -> dict:\n        return {\n            \"user_id\": self.user_id,\n            \"to\": self.to,\n            \"template\": self.template,\n            \"ref\": self.ref,\n            \"from\": settings.mail_from(),\n        }\n\n\n_CONTACTS: dict[int, str] = {}\n_INBOX: list[Message] = []\n\n\ndef capture_contact(user_id: int, email: str) -> None:\n    _CONTACTS[user_id] = email\n\n\ndef contact_for(user_id: int) -> str | None:\n    return _CONTACTS.get(user_id)\n\n\ndef dispatch_receipt(user_id: int, order_id: int) -> dict:\n    if hours_notice():\n        return {\n            \"user_id\": user_id,\n            \"to\": contact_for(user_id) or \"\",\n            \"template\": \"receipt\",\n            \"ref\": f\"order:{order_id}\",\n            \"from\": settings.mail_from(),\n            \"skipped\": True,\n        }\n    to = contact_for(user_id) or \"\"\n    message = Message(user_id, to, \"receipt\", f\"order:{order_id}\")\n    _INBOX.append(message)\n    return message.as_dict()\n\n\ndef dispatch_notice(user_id: int, template: str, ref: str) -> dict:\n    to = contact_for(user_id) or \"\"\n    message = Message(user_id, to, template, ref)\n    _INBOX.append(message)\n    return message.as_dict()\n\n\ndef list_messages(user_id: int | None = None) -> list[dict]:\n    rows = _INBOX if user_id is None else [item for item in _INBOX if item.user_id == user_id]\n    return [item.as_dict() for item in rows]\n\n\ndef last_message(user_id: int | None = None) -> dict | None:\n    rows = list_messages(user_id)\n    if not rows:\n        return None\n    return rows[-1]\n\n\ndef has_contact(user_id: int) -> bool:\n    return user_id in _CONTACTS\n\n\ndef hours_notice() -> bool:\n    return settings.flag_enabled(\"quiet_hours\")\n\n\ndef drop_contact(user_id: int) -> None:\n    _CONTACTS.pop(user_id, None)\n\n\ndef reset_store() -> None:\n    _CONTACTS.clear()\n    _INBOX.clear()\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_02_cx0Ij9Rf0ksSR4uZnDHM4403",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/audit.py"
+      },
+      "result": "\"\"\"Append-only activity stream for storefront operations.\"\"\"\n\nfrom __future__ import annotations\n\nKIND_SALE = \"sale\"\nKIND_CANCEL = \"cancellation\"\n\n\nclass ActivityEvent:\n    def __init__(self, kind: str, actor_id: int, order_id: int, **extra: object) -> None:\n        self.kind = kind\n        self.actor_id = actor_id\n        self.order_id = order_id\n        self.extra = extra\n\n    def as_dict(self) -> dict:\n        payload = {\n            \"kind\": self.kind,\n            \"actor_id\": self.actor_id,\n            \"order_id\": self.order_id,\n        }\n        payload.update(self.extra)\n        return payload\n\n    def is_open_sale(self) -> bool:\n        return self.kind == KIND_SALE\n\n\n_EVENTS: list[ActivityEvent] = []\n\n\ndef append_event(kind: str, actor_id: int, order_id: int, **extra: object) -> dict:\n    event = ActivityEvent(kind, actor_id, order_id, **extra)\n    _EVENTS.append(event)\n    return event.as_dict()\n\n\ndef record_sale(actor_id: int, order_id: int, total: float) -> dict:\n    return append_event(KIND_SALE, actor_id, order_id, total=float(total))\n\n\ndef record_cancellation(actor_id: int, order_id: int) -> dict:\n    return append_event(KIND_CANCEL, actor_id, order_id)\n\n\ndef events_for_order(order_id: int) -> list[dict]:\n    return [event.as_dict() for event in _EVENTS if event.order_id == order_id]\n\n\ndef events_for_actor(actor_id: int) -> list[dict]:\n    return [event.as_dict() for event in _EVENTS if event.actor_id == actor_id]\n\n\ndef latest_for_order(order_id: int) -> dict | None:\n    matches = events_for_order(order_id)\n    if not matches:\n        return None\n    return matches[-1]\n\n\ndef open_sales() -> list[dict]:\n    latest: dict[int, ActivityEvent] = {}\n    for event in _EVENTS:\n        latest[event.order_id] = event\n    return [event.as_dict() for event in latest.values() if event.is_open_sale()]\n\n\ndef count() -> int:\n    return len(_EVENTS)\n\n\ndef reset_store() -> None:\n    _EVENTS.clear()\n"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_KCazF9NUjg22miQNT70s2141",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/orders.py",
+        "old_str": "    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)",
+        "new_str": "    \"\"\"Create a new order and return it.\"\"\"\n    if idempotency_key:\n        existing = _find_by_idempotency_key(user_id, idempotency_key)\n        if existing is not None:\n            return existing\n\n    inventory.allocate_bin(items)"
+      },
+      "result": "Updated app/orders.py (77 -> 233 chars)"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_01_PygAjnrESm5K6B9kixW21827",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/orders.py",
+        "old_str": "def _after_create(user_id: int, order: dict) -> None:",
+        "new_str": "def _find_by_idempotency_key(user_id: int, idempotency_key: str) -> dict | None:\n    for order in _ORDERS:\n        if (\n            order.get(\"user_id\") == user_id\n            and order.get(\"idempotency_key\") == idempotency_key\n        ):\n            return order\n    return None\n\n\ndef _after_create(user_id: int, order: dict) -> None:"
+      },
+      "result": "Updated app/orders.py (53 -> 335 chars)"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_VWGX4TdqCln5leoRnuFs3383",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    if idempotency_key:\n        existing = _find_by_idempotency_key(user_id, idempotency_key)\n        if existing is not None:\n            return existing\n\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    _after_create(user_id, order)\n    return order\n\n\ndef _find_by_idempotency_key(user_id: int, idempotency_key: str) -> dict | None:\n    for order in _ORDERS:\n        if (\n            order.get(\"user_id\") == user_id\n            and order.get(\"idempotency_key\") == idempotency_key\n        ):\n            return order\n    return None\n\n\ndef _after_create(user_id: int, order: dict) -> None:\n    from app import audit, fulfillment, ledger, loyalty, notifications, webhooks\n\n    audit.record_sale(user_id, int(order[\"id\"]), float(order[\"total\"]))\n    notifications.dispatch_receipt(user_id, int(order[\"id\"]))\n    ledger.record_capture(user_id, float(order[\"total\"]), f\"order:{order['id']}\")\n    loyalty.accrue(user_id, float(order[\"total\"]))\n    fulfillment.plan_picks(int(order[\"id\"]), list(order.get(\"items\") or []))\n    webhooks.queue_delivery(\"order.created\", {\"id\": order[\"id\"], \"user_id\": user_id})\n\n\ndef refund_order(order_id: int) -> dict:\n    from app import audit, ledger\n\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    audit.record_sale(order[\"user_id\"], order_id, float(order[\"total\"]))\n    ledger.record_void(order[\"user_id\"], float(order[\"total\"]), f\"order:{order_id}\")\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef list_orders() -> list[dict]:\n    return list(_ORDERS)\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    from app import (\n        audit,\n        campaigns,\n        catalog,\n        fulfillment,\n        ledger,\n        loyalty,\n        notifications,\n        settings,\n        shipping,\n        support,\n        tax,\n        webhooks,\n    )\n\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n    audit.reset_store()\n    notifications.reset_store()\n    ledger.reset_store()\n    loyalty.reset_store()\n    fulfillment.reset_store()\n    webhooks.reset_store()\n    campaigns.reset_store()\n    catalog.reset_store()\n    settings.reset_store()\n    shipping.reset_store()\n    support.reset_store()\n    tax.reset_store()\n"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_2C664pJeEBoFmCvFNS8Q7008",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_orders_idempotency.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_idempotency.py::test_alice_replayed_checkout_key_is_not_a_second_order\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_idempotency.py::test_alice_replayed_checkout_key_is_not_a_second_order\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.78s"
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_00_iyTlzMAG4YR53PT6Vpkm8087",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "--- status ---\nM app/orders.py\n--- diff ---\ndiff --git a/app/orders.py b/app/orders.py\nindex 351d01b..aad91b7 100644\n--- a/app/orders.py\n+++ b/app/orders.py\n@@ -20,6 +20,11 @@ def create_order(\n     coupon: str | None = None,\n ) -> dict:\n     \"\"\"Create a new order and return it.\"\"\"\n+    if idempotency_key:\n+        existing = _find_by_idempotency_key(user_id, idempotency_key)\n+        if existing is not None:\n+            return existing\n+\n     inventory.allocate_bin(items)\n \n     total = calculate_total(items)\n@@ -43,6 +48,16 @@ def create_order(\n     return order\n \n \n+def _find_by_idempotency_key(user_id: int, idempotency_key: str) -> dict | None:\n+    for order in _ORDERS:\n+        if (\n+            order.get(\"user_id\") == user_id\n+            and order.get(\"idempotency_key\") == idempotency_key\n+        ):\n+            return order\n+    return None\n+\n+\n def _after_create(user_id: int, order: dict) -> None:\n     from app import audit, fulfillment, ledger, loyalty, notifications, webhooks"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_00_00ZvLvG3hEh2UmXLuf5A8536",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_3fzkw6QLK33ceytKP3BS0128",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import (\n    auth,\n    calculator,\n    inventory,\n    orders,\n    reports,\n    users,\n    validators,\n)\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\nclass EmailBody(BaseModel):\n    email: str\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n\n\n@app.patch(\"/users/me/email\")\ndef change_email_endpoint(body: EmailBody, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return users.change_email(user_id, body.email)\n\n\n@app.get(\"/notifications/inbox\")\ndef inbox_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    from app import notifications\n\n    return {\"messages\": notifications.list_messages(user_id)}\n\n\n@app.get(\"/audit/events\")\ndef audit_events_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    from app import audit\n\n    return {\"events\": audit.events_for_order(order_id)}\n\n\n@app.get(\"/reports/sales\")\ndef sales_report_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    if users.get_user(user_id).get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return reports.build_snapshot()\n\n\n@app.get(\"/quotes/surcharge\")\ndef surcharge_quote(amount: float, region: str = \"home\") -> dict:\n    from app import tax\n\n    return {\n        \"amount\": amount,\n        \"region\": region,\n        \"surcharge\": (\n            tax.away_levy(amount)\n            if region == \"remote\"\n            else tax.tax_on(amount, region)\n        ),\n    }\n\n\n@app.get(\"/quotes/delivery\")\ndef delivery_quote(sku: str, qty: int = 1, zone: str | None = None) -> dict:\n    from app import shipping\n\n    items = [{\"sku\": sku, \"qty\": qty}]\n    return {\"sku\": sku, \"postage\": shipping.quote_shipment(items, zone)}\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_CcOTZYFV5gLzqpY6TvVi8471",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    if idempotency_key:\n        existing = _find_by_idempotency_key(user_id, idempotency_key)\n        if existing is not None:\n            return existing\n\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    _after_create(user_id, order)\n    return order\n\n\ndef _find_by_idempotency_key(user_id: int, idempotency_key: str) -> dict | None:\n    for order in _ORDERS:\n        if (\n            order.get(\"user_id\") == user_id\n            and order.get(\"idempotency_key\") == idempotency_key\n        ):\n            return order\n    return None\n\n\ndef _after_create(user_id: int, order: dict) -> None:\n    from app import audit, fulfillment, ledger, loyalty, notifications, webhooks\n\n    audit.record_sale(user_id, int(order[\"id\"]), float(order[\"total\"]))\n    notifications.dispatch_receipt(user_id, int(order[\"id\"]))\n    ledger.record_capture(user_id, float(order[\"total\"]), f\"order:{order['id']}\")\n    loyalty.accrue(user_id, float(order[\"total\"]))\n    fulfillment.plan_picks(int(order[\"id\"]), list(order.get(\"items\") or []))\n    webhooks.queue_delivery(\"order.created\", {\"id\": order[\"id\"], \"user_id\": user_id})\n\n\ndef refund_order(order_id: int) -> dict:\n    from app import audit, ledger\n\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    audit.record_sale(order[\"user_id\"], order_id, float(order[\"total\"]))\n    ledger.record_void(order[\"user_id\"], float(order[\"total\"]), f\"order:{order_id}\")\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef list_orders() -> list[dict]:\n    return list(_ORDERS)\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    from app import (\n        audit,\n        campaigns,\n        catalog,\n        fulfillment,\n        ledger,\n        loyalty,\n        notifications,\n        settings,\n        shipping,\n        support,\n        tax,\n        webhooks,\n    )\n\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n    audit.reset_store()\n    notifications.reset_store()\n    ledger.reset_store()\n    loyalty.reset_store()\n    fulfillment.reset_store()\n    webhooks.reset_store()\n    campaigns.reset_store()\n    catalog.reset_store()\n    settings.reset_store()\n    shipping.reset_store()\n    support.reset_store()\n    tax.reset_store()\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_jr2PYMSYw6U5T97xJRSk0258",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/payments.py"
+      },
+      "result": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_02_D66MuSf5vk0l4XDmUZ3Q9167",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/inventory.py"
+      },
+      "result": "\"\"\"Warehouse stock and bin allocation.\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_03_knqtRgru7Go7KpMe0UAy4111",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/notifications.py"
+      },
+      "result": "\"\"\"Outbound messages and a process-local inbox.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import settings\n\n\nclass Message:\n    def __init__(self, user_id: int, to: str, template: str, ref: str) -> None:\n        self.user_id = user_id\n        self.to = to\n        self.template = template\n        self.ref = ref\n\n    def as_dict(self) -> dict:\n        return {\n            \"user_id\": self.user_id,\n            \"to\": self.to,\n            \"template\": self.template,\n            \"ref\": self.ref,\n            \"from\": settings.mail_from(),\n        }\n\n\n_CONTACTS: dict[int, str] = {}\n_INBOX: list[Message] = []\n\n\ndef capture_contact(user_id: int, email: str) -> None:\n    _CONTACTS[user_id] = email\n\n\ndef contact_for(user_id: int) -> str | None:\n    return _CONTACTS.get(user_id)\n\n\ndef dispatch_receipt(user_id: int, order_id: int) -> dict:\n    if hours_notice():\n        return {\n            \"user_id\": user_id,\n            \"to\": contact_for(user_id) or \"\",\n            \"template\": \"receipt\",\n            \"ref\": f\"order:{order_id}\",\n            \"from\": settings.mail_from(),\n            \"skipped\": True,\n        }\n    to = contact_for(user_id) or \"\"\n    message = Message(user_id, to, \"receipt\", f\"order:{order_id}\")\n    _INBOX.append(message)\n    return message.as_dict()\n\n\ndef dispatch_notice(user_id: int, template: str, ref: str) -> dict:\n    to = contact_for(user_id) or \"\"\n    message = Message(user_id, to, template, ref)\n    _INBOX.append(message)\n    return message.as_dict()\n\n\ndef list_messages(user_id: int | None = None) -> list[dict]:\n    rows = _INBOX if user_id is None else [item for item in _INBOX if item.user_id == user_id]\n    return [item.as_dict() for item in rows]\n\n\ndef last_message(user_id: int | None = None) -> dict | None:\n    rows = list_messages(user_id)\n    if not rows:\n        return None\n    return rows[-1]\n\n\ndef has_contact(user_id: int) -> bool:\n    return user_id in _CONTACTS\n\n\ndef hours_notice() -> bool:\n    return settings.flag_enabled(\"quiet_hours\")\n\n\ndef drop_contact(user_id: int) -> None:\n    _CONTACTS.pop(user_id, None)\n\n\ndef reset_store() -> None:\n    _CONTACTS.clear()\n    _INBOX.clear()\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_yKFBZwQjgx5Ix69W2kM03818",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_idempotency.py"
+      },
+      "result": "\"\"\"Repeated checkout keys for a single shopper.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_alice_replayed_checkout_key_is_not_a_second_order():\n    token = _login_alice()\n    headers = {\n        \"Authorization\": f\"Bearer {token}\",\n        \"Idempotency-Key\": \"abc-123\",\n    }\n    body = {\"items\": [{\"sku\": \"widget\", \"price\": 5.0, \"qty\": 1}]}\n    r1 = client.post(\"/orders\", json=body, headers=headers)\n    r2 = client.post(\"/orders\", json=body, headers=headers)\n    assert r1.status_code == 200 and r2.status_code == 200\n    assert r1.json()[\"id\"] == r2.json()[\"id\"]\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_01_alOuC10TwnTcX9OSeAmL0232",
+      "tool": "read_file",
+      "arguments": {
+        "path": "conftest.py"
+      },
+      "result": "\"\"\"Pytest bootstrap: make the repository root importable.\"\"\"\n\nfrom __future__ import annotations\n\nimport pathlib\nimport sys\n\nimport pytest\n\n_ROOT = pathlib.Path(__file__).resolve().parent\nif str(_ROOT) not in sys.path:\n    sys.path.insert(0, str(_ROOT))\n\n\n@pytest.fixture(autouse=True)\ndef _reset_stores() -> None:\n    from app import inventory, orders, payments, users\n\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n    yield\n    users.reset_store()\n    orders.reset_store()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_B0XdmaIPWljWrilmNrsI5210",
+      "tool": "list_files",
+      "arguments": {
+        "path": "tests"
+      },
+      "result": "tests/__init__.py\ntests/test_activity_after_cancel.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_download_delivery.py\ntests/test_inventory_orders.py\ntests/test_late_checkout_confirmation.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_out_of_region_surcharge.py\ntests/test_receipt_destination.py\ntests/test_sales_summary.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_01_ZCFgtffcB7Gm8JusHqER4412",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/auth.py"
+      },
+      "result": "\"\"\"JWT helpers for access tokens.\"\"\"\n\nfrom datetime import datetime, timedelta, timezone\n\nimport jwt\nfrom fastapi import HTTPException\n\nSECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\nALGO = \"HS256\"\n\n\ndef create_token(user_id: int, expires_in_seconds: int = 3600) -> str:\n    \"\"\"Create a signed JWT access token.\"\"\"\n    payload = {\n        \"user_id\": user_id,\n        \"exp\": datetime.now(timezone.utc)\n        + timedelta(seconds=expires_in_seconds),\n    }\n    return jwt.encode(payload, SECRET, algorithm=ALGO)\n\n\ndef decode_token(token: str) -> dict:\n    \"\"\"Decode a signed JWT and return its payload.\"\"\"\n    try:\n        return jwt.decode(token, SECRET, algorithms=[ALGO])\n    except jwt.InvalidSignatureError as exc:\n        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n\n\ndef get_current_user_id(token: str) -> int:\n    \"\"\"Return the user_id claim from a valid token.\"\"\"\n    payload = decode_token(token)\n    return payload[\"user_id\"]\n\n\ndef require_admin(token: str) -> int:\n    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n    payload = decode_token(token)\n    if payload.get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return payload[\"user_id\"]\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_TWm2aYxk480MXCvOWSnu9652",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_inventory_orders.py"
+      },
+      "result": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_01_52AZ73iawIptvNNpNJLP5906",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_receipt_destination.py"
+      },
+      "result": "\"\"\"Receipt destination after a contact change.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_next_receipt_uses_updated_address():\n    token = _login_alice()\n    headers = {\"Authorization\": f\"Bearer {token}\"}\n    updated = client.patch(\n        \"/users/me/email\",\n        json={\"email\": \"updated@example.com\"},\n        headers=headers,\n    )\n    assert updated.status_code == 200\n    assert updated.json()[\"email\"] == \"updated@example.com\"\n\n    created = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"gadget\", \"price\": 5.0, \"qty\": 1}]},\n        headers=headers,\n    )\n    assert created.status_code == 200\n\n    inbox = client.get(\"/notifications/inbox\", headers=headers)\n    assert inbox.status_code == 200\n    messages = inbox.json()[\"messages\"]\n    assert messages\n    assert messages[-1][\"to\"] == \"updated@example.com\"\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_02_KGKw4ZtylQcJksPLNQng4298",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_coupon_refund.py"
+      },
+      "result": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_03_h6KlVvxQxdJReEhzCoQH1566",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_late_checkout_confirmation.py"
+      },
+      "result": "\"\"\"Late checkout does not leave the inbox empty.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app import settings\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_late_checkout_still_sends_a_confirmation():\n    settings.enable_flag(\"quiet_hours\")\n    token = _login_alice()\n    headers = {\"Authorization\": f\"Bearer {token}\"}\n    created = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"gadget\", \"price\": 5.0, \"qty\": 1}]},\n        headers=headers,\n    )\n    assert created.status_code == 200\n\n    inbox = client.get(\"/notifications/inbox\", headers=headers)\n    assert inbox.status_code == 200\n    messages = inbox.json()[\"messages\"]\n    assert messages\n    assert messages[-1][\"template\"] == \"receipt\"\n    assert messages[-1].get(\"skipped\") is not True\n"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_qt8oqiqCuAO4hv26pGDC9501",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_orders_idempotency.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_idempotency.py::test_alice_replayed_checkout_key_is_not_a_second_order\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_idempotency.py::test_alice_replayed_checkout_key_is_not_a_second_order\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.52s"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_01_NWxy4zbNtWOJIAAH8Fzo0378",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "--- status ---\nM app/orders.py\n--- diff ---\ndiff --git a/app/orders.py b/app/orders.py\nindex 351d01b..aad91b7 100644\n--- a/app/orders.py\n+++ b/app/orders.py\n@@ -20,6 +20,11 @@ def create_order(\n     coupon: str | None = None,\n ) -> dict:\n     \"\"\"Create a new order and return it.\"\"\"\n+    if idempotency_key:\n+        existing = _find_by_idempotency_key(user_id, idempotency_key)\n+        if existing is not None:\n+            return existing\n+\n     inventory.allocate_bin(items)\n \n     total = calculate_total(items)\n@@ -43,6 +48,16 @@ def create_order(\n     return order\n \n \n+def _find_by_idempotency_key(user_id: int, idempotency_key: str) -> dict | None:\n+    for order in _ORDERS:\n+        if (\n+            order.get(\"user_id\") == user_id\n+            and order.get(\"idempotency_key\") == idempotency_key\n+        ):\n+            return order\n+    return None\n+\n+\n def _after_create(user_id: int, order: dict) -> None:\n     from app import audit, fulfillment, ledger, loyalty, notifications, webhooks"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_JBkZ2tq2H5VKkkI5nw2e3085",
+      "tool": "read_file",
+      "arguments": {
+        "path": "pytest.ini"
+      },
+      "result": "[pytest]\ntestpaths = tests\naddopts = -ra\nnorecursedirs = .* _gold .git .venv venv\n"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_01_kASSafNwuWha8QXdadVW0407",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "idempotency"
+      },
+      "result": "app/main.py:77:    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\napp/main.py:85:        idempotency_key=idempotency_key,\napp/orders.py:19:    idempotency_key: str | None = None,\napp/orders.py:23:    if idempotency_key:\napp/orders.py:24:        existing = _find_by_idempotency_key(user_id, idempotency_key)\napp/orders.py:44:        \"idempotency_key\": idempotency_key,\napp/orders.py:51:def _find_by_idempotency_key(user_id: int, idempotency_key: str) -> dict | None:\napp/orders.py:55:            and order.get(\"idempotency_key\") == idempotency_key"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_jPwJ5cUvlT79idlKcsvp0418",
+      "tool": "read_file",
+      "arguments": {
+        "path": "README.md"
+      },
+      "result": "# issue-pilot-benchmark\n\nA small FastAPI application used as the target repository for the IssuePilot\ncoding-agent harness.\n\nThis repository is **intentionally broken at HEAD**. Visible tests under\n`tests/` reproduce symptoms. Hidden gold tests live in the harness repo and\nare not part of this tree.\n\n## Layout\n\n```\napp/          FastAPI app and supporting storefront modules\ntests/        Symptom-level reproductions (one issue per file)\n```\n\n## Run tests\n\n```bash\npip install -r requirements.txt\npytest -q\n```\n\nDo not fix the bugs by hand in the committed baseline — the harness runs\n`git reset --hard <base_commit> && git clean -fd` before every task.\n"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_01_YLRwYwiGT53xDU6pbI174887",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "def login"
+      },
+      "result": "app/main.py:47:def login(body: LoginBody) -> dict:\napp/users.py:30:def login(email: str, password: str) -> str:"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_02_jQAzNuEd3gzUU08fT8yn3373",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/users.py"
+      },
+      "result": "\"\"\"In-memory user store and login.\"\"\"\n\nfrom copy import deepcopy\n\nfrom fastapi import HTTPException\n\nfrom app import auth\n\n_DEFAULT_USERS: dict[int, dict] = {\n    1: {\"email\": \"admin@example.com\", \"password\": \"adminpass1\", \"role\": \"admin\"},\n    2: {\"email\": \"alice@example.com\", \"password\": \"alicepass1\", \"role\": \"user\"},\n    3: {\"email\": \"bob@example.com\", \"password\": \"bobpass1\", \"role\": \"user\"},\n}\n\n_USERS: dict[int, dict] = deepcopy(_DEFAULT_USERS)\n\n\ndef get_user(user_id: int) -> dict:\n    \"\"\"Return the user record for ``user_id``.\"\"\"\n    return _USERS[user_id]\n\n\ndef find_user_by_email(email: str) -> tuple[int, dict] | None:\n    for uid, u in _USERS.items():\n        if u[\"email\"] == email:\n            return uid, u\n    return None\n\n\ndef login(email: str, password: str) -> str:\n    \"\"\"Verify credentials and return an access token.\"\"\"\n    match = find_user_by_email(email)\n    if match is None:\n        raise HTTPException(status_code=401, detail=\"invalid credentials\")\n    uid, user = match\n    if user[\"password\"] != password:\n        raise HTTPException(status_code=401, detail=\"invalid credentials\")\n    from app import notifications\n\n    notifications.capture_contact(uid, user[\"email\"])\n    return auth.create_token(user_id=uid)\n\n\ndef change_email(user_id: int, email: str) -> dict:\n    from app import validators\n\n    if not validators.is_valid_email(email) or not email:\n        raise HTTPException(status_code=400, detail=\"invalid email\")\n    taken = find_user_by_email(email)\n    if taken is not None and taken[0] != user_id:\n        raise HTTPException(status_code=409, detail=\"email in use\")\n    user = get_user(user_id)\n    user[\"email\"] = email\n    return {\"id\": user_id, \"email\": email, \"role\": user[\"role\"]}\n\n\ndef promote_user(target_id: int) -> dict:\n    user = get_user(target_id)\n    user[\"role\"] = \"admin\"\n    return user\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore the seeded users.\"\"\"\n    from app import notifications\n\n    _USERS.clear()\n    _USERS.update(deepcopy(_DEFAULT_USERS))\n    notifications.reset_store()\n"
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_00_WhMfLfmuLTqUAhq86FS80692",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    if idempotency_key:\n        existing = _find_by_idempotency_key(user_id, idempotency_key)\n        if existing is not None:\n            return existing\n\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    _after_create(user_id, order)\n    return order\n\n\ndef _find_by_idempotency_key(user_id: int, idempotency_key: str) -> dict | None:\n    for order in _ORDERS:\n        if (\n            order.get(\"user_id\") == user_id\n            and order.get(\"idempotency_key\") == idempotency_key\n        ):\n            return order\n    return None\n\n\ndef _after_create(user_id: int, order: dict) -> None:\n    from app import audit, fulfillment, ledger, loyalty, notifications, webhooks\n\n    audit.record_sale(user_id, int(order[\"id\"]), float(order[\"total\"]))\n    notifications.dispatch_receipt(user_id, int(order[\"id\"]))\n    ledger.record_capture(user_id, float(order[\"total\"]), f\"order:{order['id']}\")\n    loyalty.accrue(user_id, float(order[\"total\"]))\n    fulfillment.plan_picks(int(order[\"id\"]), list(order.get(\"items\") or []))\n    webhooks.queue_delivery(\"order.created\", {\"id\": order[\"id\"], \"user_id\": user_id})\n\n\ndef refund_order(order_id: int) -> dict:\n    from app import audit, ledger\n\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    audit.record_sale(order[\"user_id\"], order_id, float(order[\"total\"]))\n    ledger.record_void(order[\"user_id\"], float(order[\"total\"]), f\"order:{order_id}\")\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef list_orders() -> list[dict]:\n    return list(_ORDERS)\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    from app import (\n        audit,\n        campaigns,\n        catalog,\n        fulfillment,\n        ledger,\n        loyalty,\n        notifications,\n        settings,\n        shipping,\n        support,\n        tax,\n        webhooks,\n    )\n\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n    audit.reset_store()\n    notifications.reset_store()\n    ledger.reset_store()\n    loyalty.reset_store()\n    fulfillment.reset_store()\n    webhooks.reset_store()\n    campaigns.reset_store()\n    catalog.reset_store()\n    settings.reset_store()\n    shipping.reset_store()\n    support.reset_store()\n    tax.reset_store()\n"
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_01_6nabFgIGgO1t8T0HseGq9705",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/ledger.py"
+      },
+      "result": "\"\"\"Internal journal for captured and voided payments.\"\"\"\n\nfrom __future__ import annotations\n\n\nclass JournalLine:\n    def __init__(self, kind: str, user_id: int, amount: float, ref: str) -> None:\n        self.kind = kind\n        self.user_id = user_id\n        self.amount = amount\n        self.ref = ref\n\n    def as_dict(self) -> dict:\n        return {\n            \"kind\": self.kind,\n            \"user_id\": self.user_id,\n            \"amount\": self.amount,\n            \"ref\": self.ref,\n        }\n\n    def is_debit(self) -> bool:\n        return self.kind in {\"capture\", \"fee\"}\n\n\n_LINES: list[JournalLine] = []\n\n\ndef record_capture(user_id: int, amount: float, ref: str) -> JournalLine:\n    line = JournalLine(\"capture\", user_id, float(amount), ref)\n    _LINES.append(line)\n    return line\n\n\ndef record_void(user_id: int, amount: float, ref: str) -> JournalLine:\n    line = JournalLine(\"void\", user_id, float(amount), ref)\n    _LINES.append(line)\n    return line\n\n\ndef record_fee(user_id: int, amount: float, ref: str) -> JournalLine:\n    line = JournalLine(\"fee\", user_id, float(amount), ref)\n    _LINES.append(line)\n    return line\n\n\ndef lines_for(user_id: int) -> list[dict]:\n    return [line.as_dict() for line in _LINES if line.user_id == user_id]\n\n\ndef lines_for_ref(ref: str) -> list[dict]:\n    return [line.as_dict() for line in _LINES if line.ref == ref]\n\n\ndef captured_total(user_id: int | None = None) -> float:\n    total = 0.0\n    for line in _LINES:\n        if user_id is not None and line.user_id != user_id:\n            continue\n        if line.kind == \"capture\":\n            total += line.amount\n        elif line.kind == \"void\":\n            total -= line.amount\n    return round(total, 2)\n\n\ndef has_capture(ref: str) -> bool:\n    return any(line.kind == \"capture\" and line.ref == ref for line in _LINES)\n\n\ndef last_line() -> dict | None:\n    if not _LINES:\n        return None\n    return _LINES[-1].as_dict()\n\n\ndef reset_store() -> None:\n    _LINES.clear()\n"
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_02_iwc0i7NqyhtwlAURUFf68201",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/audit.py"
+      },
+      "result": "\"\"\"Append-only activity stream for storefront operations.\"\"\"\n\nfrom __future__ import annotations\n\nKIND_SALE = \"sale\"\nKIND_CANCEL = \"cancellation\"\n\n\nclass ActivityEvent:\n    def __init__(self, kind: str, actor_id: int, order_id: int, **extra: object) -> None:\n        self.kind = kind\n        self.actor_id = actor_id\n        self.order_id = order_id\n        self.extra = extra\n\n    def as_dict(self) -> dict:\n        payload = {\n            \"kind\": self.kind,\n            \"actor_id\": self.actor_id,\n            \"order_id\": self.order_id,\n        }\n        payload.update(self.extra)\n        return payload\n\n    def is_open_sale(self) -> bool:\n        return self.kind == KIND_SALE\n\n\n_EVENTS: list[ActivityEvent] = []\n\n\ndef append_event(kind: str, actor_id: int, order_id: int, **extra: object) -> dict:\n    event = ActivityEvent(kind, actor_id, order_id, **extra)\n    _EVENTS.append(event)\n    return event.as_dict()\n\n\ndef record_sale(actor_id: int, order_id: int, total: float) -> dict:\n    return append_event(KIND_SALE, actor_id, order_id, total=float(total))\n\n\ndef record_cancellation(actor_id: int, order_id: int) -> dict:\n    return append_event(KIND_CANCEL, actor_id, order_id)\n\n\ndef events_for_order(order_id: int) -> list[dict]:\n    return [event.as_dict() for event in _EVENTS if event.order_id == order_id]\n\n\ndef events_for_actor(actor_id: int) -> list[dict]:\n    return [event.as_dict() for event in _EVENTS if event.actor_id == actor_id]\n\n\ndef latest_for_order(order_id: int) -> dict | None:\n    matches = events_for_order(order_id)\n    if not matches:\n        return None\n    return matches[-1]\n\n\ndef open_sales() -> list[dict]:\n    latest: dict[int, ActivityEvent] = {}\n    for event in _EVENTS:\n        latest[event.order_id] = event\n    return [event.as_dict() for event in latest.values() if event.is_open_sale()]\n\n\ndef count() -> int:\n    return len(_EVENTS)\n\n\ndef reset_store() -> None:\n    _EVENTS.clear()\n"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_00_VQxwr571iFuX9rF2H4A19729",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_sales_summary.py"
+      },
+      "result": "\"\"\"Staff sales summary for multi-unit lines.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef _login_admin() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"admin@example.com\", \"password\": \"adminpass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_sales_summary_counts_every_unit_on_a_line():\n    alice = _login_alice()\n    created = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"gadget\", \"price\": 10.0, \"qty\": 2}]},\n        headers={\"Authorization\": f\"Bearer {alice}\"},\n    )\n    assert created.status_code == 200\n\n    admin = _login_admin()\n    summary = client.get(\n        \"/reports/sales\",\n        headers={\"Authorization\": f\"Bearer {admin}\"},\n    )\n    assert summary.status_code == 200\n    assert summary.json()[\"merchandise\"] == 20.0\n"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_01_0BW47UqZsCoYw25aMykQ1685",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_total.py"
+      },
+      "result": "\"\"\"Order line totals.\"\"\"\n\nfrom app import orders\n\n\ndef test_line_total_is_not_unit_prices_only():\n    total = orders.calculate_total(\n        [\n            {\"price\": 10.0, \"qty\": 3},\n            {\"price\": 2.5, \"qty\": 2},\n        ]\n    )\n    # Summing unit prices and ignoring qty yields 12.5.\n    assert total != 12.5\n"
+    },
+    {
+      "step": 10,
+      "tool_call_id": "call_02_ZolVBPoJGZQLHA6chYbL9150",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_activity_after_cancel.py"
+      },
+      "result": "\"\"\"Activity stream after a cancelled purchase.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_cancelled_purchase_is_not_still_an_open_sale():\n    token = _login_alice()\n    headers = {\"Authorization\": f\"Bearer {token}\"}\n    created = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"gadget\", \"price\": 5.0, \"qty\": 1}]},\n        headers=headers,\n    )\n    assert created.status_code == 200\n    order_id = created.json()[\"id\"]\n\n    cancelled = client.post(f\"/orders/{order_id}/refund\", headers=headers)\n    assert cancelled.status_code == 200\n\n    activity = client.get(f\"/audit/events?order_id={order_id}\", headers=headers)\n    assert activity.status_code == 200\n    events = activity.json()[\"events\"]\n    assert events\n    assert events[-1][\"kind\"] != \"sale\"\n"
+    },
+    {
+      "step": 11,
+      "tool_call_id": "call_00_0HXuCaaKgU1ZGCzfuWEt8188",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/pricing.py"
+      },
+      "result": "\"\"\"Quotes, tax, and coupons.\n\nA coupon code should change the payable amount at most once. Checkout currently\ndoes not call ``compute_checkout_total``.\n\"\"\"\n\nCOUPONS = {\n    \"SAVE10\": 0.10,\n    \"SAVE20\": 0.20,\n}\n\n\ndef quote_price(sku: str, qty: int, unit_price: float) -> float:\n    \"\"\"Unit quote helper; not used by ``orders.create_order``.\"\"\"\n    return round(unit_price * qty, 2)\n\n\ndef apply_tax(subtotal: float, tax_rate: float = 0.0) -> float:\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef apply_coupon(amount: float, code: str | None) -> float:\n    if not code:\n        return round(float(amount), 2)\n    rate = COUPONS.get(code.upper(), 0.0)\n    return round(float(amount) * (1.0 - rate), 2)\n\n\ndef compute_checkout_total(\n    items: list[dict],\n    coupon: str | None = None,\n    tax_rate: float = 0.0,\n) -> float:\n    \"\"\"One-shot subtotal → coupon → tax. Unused by the order service today.\"\"\"\n    subtotal = sum(float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items)\n    discounted = apply_coupon(subtotal, coupon)\n    return apply_tax(discounted, tax_rate)\n"
+    },
+    {
+      "step": 11,
+      "tool_call_id": "call_01_wpCkzDOapTcH85gyBYrX2369",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/reports.py"
+      },
+      "result": "\"\"\"Aggregated storefront totals for staff dashboards.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import orders, pricing, settings, tax\n\n\nclass Snapshot:\n    def __init__(self, merchandise: float, count: int) -> None:\n        self.merchandise = merchandise\n        self.count = count\n\n    def as_dict(self) -> dict:\n        return {\"merchandise\": self.merchandise, \"count\": self.count}\n\n    def empty(self) -> bool:\n        return self.count == 0\n\n\ndef iter_counted_rows() -> list[dict]:\n    return list(orders.list_orders())\n\n\ndef line_amount(item: dict) -> float:\n    return float(item.get(\"price\") or 0.0)\n\n\ndef quoted_line(item: dict) -> float:\n    return pricing.quote_price(\n        str(item.get(\"sku\") or \"widget\"),\n        int(item.get(\"qty\", 1) or 1),\n        float(item.get(\"price\") or 0.0),\n    )\n\n\ndef merchandise_total(rows: list[dict]) -> float:\n    amount = 0.0\n    for row in rows:\n        for item in row.get(\"items\") or []:\n            amount += line_amount(item)\n    return round(amount, 2)\n\n\ndef counted_rows() -> list[dict]:\n    return iter_counted_rows()\n\n\ndef build_snapshot() -> dict:\n    rows = counted_rows()\n    merchandise = merchandise_total(rows)\n    if settings.flag_enabled(\"include_tax_in_reports\"):\n        merchandise = tax.inclusive_total(merchandise)\n    snap = Snapshot(merchandise, len(rows))\n    return snap.as_dict()\n\n\ndef order_count() -> int:\n    return len(counted_rows())\n\n\ndef average_ticket() -> float:\n    rows = counted_rows()\n    if not rows:\n        return 0.0\n    return round(merchandise_total(rows) / len(rows), 2)\n\n\ndef sku_units(sku: str) -> int:\n    total = 0\n    for row in counted_rows():\n        for item in row.get(\"items\") or []:\n            if str(item.get(\"sku\") or \"\") == sku:\n                total += int(item.get(\"qty\", 1) or 1)\n    return total\n\n\ndef reset_store() -> None:\n    return None\n"
+    },
+    {
+      "step": 12,
+      "tool_call_id": "call_00_NCDHPtvKn9yWNGvODuGd0790",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "dispatch_receipt"
+      },
+      "result": "app/notifications.py:37:def dispatch_receipt(user_id: int, order_id: int) -> dict:\napp/orders.py:65:    notifications.dispatch_receipt(user_id, int(order[\"id\"]))"
+    },
+    {
+      "step": 12,
+      "tool_call_id": "call_01_PSKgl0BxrVzcPZV8iZdA5982",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "create_order"
+      },
+      "result": "app/main.py:74:def create_order_endpoint(\napp/main.py:82:    return orders.create_order(\napp/orders.py:16:def create_order(\napp/pricing.py:14:    \"\"\"Unit quote helper; not used by ``orders.create_order``.\"\"\""
+    },
+    {
+      "step": 13,
+      "tool_call_id": "call_00_GWFFkNKEbsHGMkqCOMuo7421",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "_CHARGES"
+      },
+      "result": "app/payments.py:8:_CHARGES: list[dict] = []\napp/payments.py:18:    _CHARGES.append(rec)\napp/payments.py:33:    _CHARGES.clear()"
+    },
+    {
+      "step": 13,
+      "tool_call_id": "call_01_J1nB9VhyL3c0fWUKXsga1085",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "list_messages"
+      },
+      "result": "app/main.py:125:    return {\"messages\": notifications.list_messages(user_id)}\napp/notifications.py:60:def list_messages(user_id: int | None = None) -> list[dict]:\napp/notifications.py:66:    rows = list_messages(user_id)"
+    },
+    {
+      "step": 13,
+      "tool_call_id": "call_02_6GAMzgmwwi8PG3POtPiD0512",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "last_message"
+      },
+      "result": "app/notifications.py:65:def last_message(user_id: int | None = None) -> dict | None:"
+    },
+    {
+      "step": 14,
+      "tool_call_id": "call_00_5ED3xyMgF3kJh4QwsnOs6590",
+      "tool": "list_files",
+      "arguments": {
+        "path": "app"
+      },
+      "result": "app/__init__.py\napp/audit.py\napp/auth.py\napp/calculator.py\napp/campaigns.py\napp/catalog.py\napp/fulfillment.py\napp/inventory.py\napp/ledger.py\napp/loyalty.py\napp/main.py\napp/notifications.py\napp/orders.py\napp/payments.py\napp/pricing.py\napp/reports.py\napp/settings.py\napp/shipping.py\napp/support.py\napp/tax.py\napp/users.py\napp/validators.py\napp/webhooks.py"
+    },
+    {
+      "step": 14,
+      "tool_call_id": "call_01_JZSpMFvFF5Rnwlj0rYAL6792",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/webhooks.py"
+      },
+      "result": "\"\"\"Signed outbound callbacks for third-party endpoints.\"\"\"\n\nfrom __future__ import annotations\n\nimport hashlib\nimport hmac\nimport json\n\nfrom app import settings\n\n\nclass Endpoint:\n    def __init__(self, url: str, secret: str, active: bool = True) -> None:\n        self.url = url\n        self.secret = secret\n        self.active = active\n\n    def disable(self) -> None:\n        self.active = False\n\n    def enable(self) -> None:\n        self.active = True\n\n\n_ENDPOINTS: list[Endpoint] = [\n    Endpoint(\"https://hooks.example.invalid/shop\", \"dev-hook-secret\"),\n]\n_DELIVERIES: list[dict] = []\n\n\ndef sign_payload(secret: str, body: str) -> str:\n    digest = hmac.new(secret.encode(\"utf-8\"), body.encode(\"utf-8\"), hashlib.sha256)\n    return digest.hexdigest()\n\n\ndef encode_body(payload: dict) -> str:\n    return json.dumps(payload, sort_keys=True)\n\n\ndef active_endpoints() -> list[Endpoint]:\n    return [item for item in _ENDPOINTS if item.active]\n\n\ndef register_endpoint(url: str, secret: str) -> Endpoint:\n    item = Endpoint(url, secret)\n    _ENDPOINTS.append(item)\n    return item\n\n\ndef queue_delivery(kind: str, payload: dict) -> list[dict]:\n    if not settings.webhooks_enabled():\n        return []\n    body = encode_body(payload)\n    sent: list[dict] = []\n    for endpoint in active_endpoints():\n        rec = {\n            \"url\": endpoint.url,\n            \"kind\": kind,\n            \"signature\": sign_payload(endpoint.secret, body),\n        }\n        _DELIVERIES.append(rec)\n        sent.append(rec)\n    return sent\n\n\ndef deliveries() -> list[dict]:\n    return list(_DELIVERIES)\n\n\ndef last_delivery() -> dict | None:\n    if not _DELIVERIES:\n        return None\n    return _DELIVERIES[-1]\n\n\ndef reset_store() -> None:\n    _DELIVERIES.clear()\n    for item in _ENDPOINTS:\n        item.enable()\n"
+    },
+    {
+      "step": 14,
+      "tool_call_id": "call_02_jF1neqbKEqc0Z9uJQHYK0142",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/fulfillment.py"
+      },
+      "result": "\"\"\"Pick, pack, and dispatch helpers for physical lines.\"\"\"\n\nfrom __future__ import annotations\n\nfrom app import catalog, shipping\n\n\nclass PickJob:\n    def __init__(self, order_id: int, sku: str, qty: int) -> None:\n        self.order_id = order_id\n        self.sku = sku\n        self.qty = qty\n        self.packed = False\n\n    def mark_packed(self) -> None:\n        self.packed = True\n\n    def as_dict(self) -> dict:\n        return {\n            \"order_id\": self.order_id,\n            \"sku\": self.sku,\n            \"qty\": self.qty,\n            \"packed\": self.packed,\n        }\n\n\n_JOBS: list[PickJob] = []\n\n\ndef plan_picks(order_id: int, items: list[dict]) -> list[dict]:\n    jobs: list[dict] = []\n    for item in items:\n        sku = str(item.get(\"sku\") or \"widget\")\n        if not catalog.is_shippable(sku):\n            continue\n        job = PickJob(order_id, sku, int(item.get(\"qty\", 1) or 1))\n        _JOBS.append(job)\n        jobs.append(job.as_dict())\n    return jobs\n\n\ndef pack_next() -> dict | None:\n    for job in _JOBS:\n        if not job.packed:\n            job.mark_packed()\n            return job.as_dict()\n    return None\n\n\ndef pending_count() -> int:\n    return sum(1 for job in _JOBS if not job.packed)\n\n\ndef postage_for(items: list[dict]) -> float:\n    return shipping.quote_shipment(items)\n\n\ndef jobs_for(order_id: int) -> list[dict]:\n    return [job.as_dict() for job in _JOBS if job.order_id == order_id]\n\n\ndef reset_store() -> None:\n    _JOBS.clear()\n"
+    },
+    {
+      "step": 15,
+      "tool_call_id": "call_00_d66QviwM3hgz0yCSGBNO7237",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "checkout"
+      },
+      "result": "app/pricing.py:4:does not call ``compute_checkout_total``.\napp/pricing.py:29:def compute_checkout_total(\ntests/test_inventory_orders.py:1:\"\"\"Oversized checkout against warehouse stock.\"\"\"\ntests/test_late_checkout_confirmation.py:1:\"\"\"Late checkout does not leave the inbox empty.\"\"\"\ntests/test_late_checkout_confirmation.py:20:def test_late_checkout_still_sends_a_confirmation():\ntests/test_orders_coupon_refund.py:1:\"\"\"Coupon checkout totals.\"\"\"\ntests/test_orders_idempotency.py:1:\"\"\"Repeated checkout keys for a single shopper.\"\"\"\ntests/test_orders_idempotency.py:19:def test_alice_replayed_checkout_key_is_not_a_second_order():\ntests/test_out_of_region_surcharge.py:1:\"\"\"Out-of-region checkout still billed at the shop surcharge.\"\"\""
+    },
+    {
+      "step": 15,
+      "tool_call_id": "call_01_VqA0hNdsliboc2HbRJNp1664",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    }
+  ],
+  "messages": [],
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "sandbox_backend": "docker",
+  "sandbox_image": "issue-pilot-sandbox:py312",
+  "sandbox_network": "none",
+  "sandbox_container_name": "issue-pilot-issue-008-8e1be3b8",
+  "sandbox_command_count": 23,
+  "sandbox_timeout_count": 0,
+  "sandbox_truncation_count": 0,
+  "sandbox_denial_count": 0,
+  "sandbox_exec_latency_ms": 28149.37,
+  "sandbox_started": true,
+  "sandbox_cleaned_up": true,
+  "analysis": "1. **Problem in plain terms:**  \n   The user completed the same checkout action twice, and the system processed it as two separate orders, resulting in two receipts (and likely two charges). This is a duplicate submission bug—the system can't tell that the two requests came from the same intended checkout, so it treats them as independent purchases.\n\n2. **Initial hypothesis about the root cause:**  \n   The checkout flow lacks idempotency protection. There is no client-generated request identifier or server-side deduplication check, so retries, double-clicks, or network retries are all processed as new orders. The backend likely creates a payment/order on every request without verifying whether a matching checkout request was already handled.",
+  "plan": {
+    "problem": "Submitting the same checkout twice results in two orders and two receipts instead of deduplicating to one.",
+    "hypothesis": "A previous patch made orders.create_order return the existing order on a duplicate key, but the checkout route still runs downstream side effects after create_order returns. Consequently a replayed request reuses the order object yet still triggers new payment, receipt, and possibly inventory/ledger side effects. The idempotency decision must move to the checkout/payment boundary: the first request should store the complete checkout response (order, payment, receipt) keyed by user and idempotency key, and a replay should short-circuit before any payment/receipt/inventory side effect occurs.",
+    "files_to_inspect": [
+      "app/main.py",
+      "app/payments.py",
+      "app/orders.py",
+      "app/inventory.py",
+      "app/notifications.py",
+      "tests/test_orders_idempotency.py"
+    ],
+    "steps": [
+      "Trace the checkout route in app/main.py and list every downstream call and side effect that still executes after orders.create_order returns on a duplicate checkout key.",
+      "Inspect app/payments.py, app/inventory.py, and app/notifications.py to identify where payment records, stock mutations, and receipt notifications are created unconditionally per request.",
+      "Review app/orders.py plus tests/test_orders_idempotency.py to confirm the existing idempotency key fields, return values, and the expected single-order/single-receipt contract.",
+      "Implement a full-response idempotency guard at the checkout/payment boundary so a replay with the same user and idempotency key returns the stored order, payment, and receipt before any payment/inventory/receipt side effect can run.",
+      "Run the full suite (pytest -q) plus ruff check, especially tests/test_orders_idempotency.py and checkout-related tests, to confirm duplicate submissions produce exactly one order and one receipt without modifying tests."
+    ]
+  },
+  "diagnosis": "The patch only modified app/orders.py to make create_order return an existing order when the same user/idempotency_key is seen. It did not implement the planned route-level idempotency guard: app/main.py still invokes payment, receipt, and other downstream side effects after create_order returns. Because create_order's return value does not tell the caller whether this was a replay, a duplicate checkout reuses the same order object but still triggers a new payment and receipt, so the observable bug of two receipts remains. [BAD_PATCH] New hypothesis: The duplicate receipt survives because the checkout handler treats create_order's return as a fresh checkout even when it is a replay. The correct fix is to make the checkout path explicitly signal whether the order was newly created or replayed, and run payment/receipt/inventory/notification side effects only for newly created orders. Replays should either short-circuit at the start of the route or return the already-stored checkout response without re-executing those side effects. Next: Trace the checkout route in app/main.py and list every call after create_order that produces payment, receipt, inventory, or notification side effects.; Add an HTTP-level regression test that submits the same checkout twice with the same Idempotency-Key and asserts exactly one order, one payment, and one receipt.; Change create_order (or introduce a checkout service wrapper) to return an explicit created-vs-replayed result, and make the route skip all downstream side effects when the result indicates a replay.; If a created flag is insufficient, persist the completed checkout response keyed by (user_id, idempotency_key) and return that stored response on duplicate submissions before any side effect runs.; Run the full test suite plus ruff after the fix, confirming tests are not modified and the duplicate-checkout scenario is covered end to end.",
+  "verification": {
+    "command": "pytest tests/test_orders_idempotency.py -q",
+    "lint_command": "ruff check app",
+    "exit_code": 0,
+    "passed": false,
+    "deterministic_pass": false,
+    "pytest_passed": true,
+    "ruff_passed": false,
+    "ruff_autofixed": true,
+    "patch_valid": true,
+    "changed_files": [
+      "app/orders.py"
+    ],
+    "untracked_files": [],
+    "output": "exit_code=0\ncommand: pytest tests/test_orders_idempotency.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_idempotency.py::test_alice_replayed_checkout_key_is_not_a_second_order\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_idempotency.py::test_alice_replayed_checkout_key_is_not_a_second_order\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.80s",
+    "ruff_output": "exit_code=1\ncommand: ruff check app --ignore EXE001 --ignore EXE002\n--- stdout ---\nRUF100 [*] Unused `noqa` directive (non-enabled: `S105`)\n --> app/auth.py:8:43\n  |\n6 | from fastapi import HTTPException\n7 |\n8 | SECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\n  |                                           ^^^^^^^^^^^^\n9 | ALGO = \"HS256\"\n  |\nhelp: Remove unused `noqa` directive\n  |\n7 |\n  - SECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\n8 + SECRET = \"dev-secret-do-not-use-in-prod\"\n9 | ALGO = \"HS256\"\n  |\n\nI001 [*] Import block is un-sorted or un-formatted\n  --> app/main.py:3:1\n   |\n 1 |   \"\"\"FastAPI app wiring.\"\"\"\n 2 |\n 3 | / from fastapi import FastAPI, Header, HTTPException\n 4 | | from pydantic import BaseModel\n 5 | |\n 6 | | from app import (\n 7 | |     auth,\n 8 | |     calculator,\n 9 | |     inventory,\n10 | |     orders,\n11 | |     reports,\n12 | |     users,\n13 | |     validators,\n14 | | )\n   | |_^\nhelp: Organize imports\n   |\n15 |\n   -\n16 | app = FastAPI(title=\"issue-pilot-benchmark\")\n   |\n\nI001 [*] Import block is un-sorted or un-formatted\n --> app/settings.py:3:1\n  |\n1 | \"\"\"Runtime flags, locales, and shop defaults.\"\"\"\n2 |\n3 | from __future__ import annotations\n  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nhelp: Organize imports\n  |\n4 |\n  -\n5 | _DEFAULTS: dict[str, object] = {\n  |\n\nFound 3 errors.\n[*] 3 fixable with the `--fix` option.",
+    "git_diff": "--- status ---\nM app/orders.py\n--- diff ---\ndiff --git a/app/orders.py b/app/orders.py\nindex 351d01b..aad91b7 100644\n--- a/app/orders.py\n+++ b/app/orders.py\n@@ -20,6 +20,11 @@ def create_order(\n     coupon: str | None = None,\n ) -> dict:\n     \"\"\"Create a new order and return it.\"\"\"\n+    if idempotency_key:\n+        existing = _find_by_idempotency_key(user_id, idempotency_key)\n+        if existing is not None:\n+            return existing\n+\n     inventory.allocate_bin(items)\n \n     total = calculate_total(items)\n@@ -43,6 +48,16 @@ def create_order(\n     return order\n \n \n+def _find_by_idempotency_key(user_id: int, idempotency_key: str) -> dict | None:\n+    for order in _ORDERS:\n+        if (\n+            order.get(\"user_id\") == user_id\n+            and order.get(\"idempotency_key\") == idempotency_key\n+        ):\n+            return order\n+    return None\n+\n+\n def _after_create(user_id: int, order: dict) -> None:\n     from app import audit, fulfillment, ledger, loyalty, notifications, webhooks"
+  },
+  "status": "needs_human",
+  "workflow_passed": false,
+  "stage_tokens": {
+    "analyze": {
+      "prompt_tokens": 151,
+      "completion_tokens": 230,
+      "llm_calls": 1
+    },
+    "plan": {
+      "prompt_tokens": 2437,
+      "completion_tokens": 2073,
+      "llm_calls": 2
+    },
+    "execute": {
+      "prompt_tokens": 274509,
+      "completion_tokens": 24970,
+      "llm_calls": 25
+    },
+    "diagnose": {
+      "prompt_tokens": 4203,
+      "completion_tokens": 11678,
+      "llm_calls": 2
+    }
+  },
+  "retry_count": 2,
+  "human_retry_count": 0,
+  "human_feedback": "",
+  "attempt_history": [
+    {
+      "attempt_index": 0,
+      "hypothesis": "The checkout/order-creation path has no idempotency mechanism: each request creates a new order and payment record regardless of whether it carries a client-side checkpoint ID. Duplicate submissions bypass any existing order lookup because the code does not check for an existing order tied to the same checkout key before creating another.",
+      "deterministic_pass": false,
+      "evaluator_pass": null,
+      "failure_source": "deterministic",
+      "failure_category": "BAD_PATCH",
+      "root_cause": "The patch adds an idempotency guard inside app/orders.create_order, so a repeated checkout no longer creates a second order, but it does not deduplicate the rest of the checkout pipeline. The endpoint/payment/receipt code still appears to run unconditionally after create_order returns, so a duplicate submission with the same checkout key gets the same order object yet still triggers a new payment and receipt. Verification therefore fails because the observable bug (two receipts) is not fixed; only the order half was fixed."
+    },
+    {
+      "attempt_index": 1,
+      "hypothesis": "A previous patch made orders.create_order return the existing order on a duplicate key, but the checkout route still runs downstream side effects after create_order returns. Consequently a replayed request reuses the order object yet still triggers new payment, receipt, and possibly inventory/ledger side effects. The idempotency decision must move to the checkout/payment boundary: the first request should store the complete checkout response (order, payment, receipt) keyed by user and idempotency key, and a replay should short-circuit before any payment/receipt/inventory side effect occurs.",
+      "deterministic_pass": false,
+      "evaluator_pass": null,
+      "failure_source": "deterministic",
+      "failure_category": "BAD_PATCH",
+      "root_cause": "The patch only modified app/orders.py to make create_order return an existing order when the same user/idempotency_key is seen. It did not implement the planned route-level idempotency guard: app/main.py still invokes payment, receipt, and other downstream side effects after create_order returns. Because create_order's return value does not tell the caller whether this was a replay, a duplicate checkout reuses the same order object but still triggers a new payment and receipt, so the observable bug of two receipts remains."
+    }
+  ],
+  "structured_diagnosis": {
+    "root_cause": "The patch only modified app/orders.py to make create_order return an existing order when the same user/idempotency_key is seen. It did not implement the planned route-level idempotency guard: app/main.py still invokes payment, receipt, and other downstream side effects after create_order returns. Because create_order's return value does not tell the caller whether this was a replay, a duplicate checkout reuses the same order object but still triggers a new payment and receipt, so the observable bug of two receipts remains.",
+    "failure_category": "BAD_PATCH",
+    "new_hypothesis": "The duplicate receipt survives because the checkout handler treats create_order's return as a fresh checkout even when it is a replay. The correct fix is to make the checkout path explicitly signal whether the order was newly created or replayed, and run payment/receipt/inventory/notification side effects only for newly created orders. Replays should either short-circuit at the start of the route or return the already-stored checkout response without re-executing those side effects.",
+    "next_actions": [
+      "Trace the checkout route in app/main.py and list every call after create_order that produces payment, receipt, inventory, or notification side effects.",
+      "Add an HTTP-level regression test that submits the same checkout twice with the same Idempotency-Key and asserts exactly one order, one payment, and one receipt.",
+      "Change create_order (or introduce a checkout service wrapper) to return an explicit created-vs-replayed result, and make the route skip all downstream side effects when the result indicates a replay.",
+      "If a created flag is insufficient, persist the completed checkout response keyed by (user_id, idempotency_key) and return that stored response on duplicate submissions before any side effect runs.",
+      "Run the full test suite plus ruff after the fix, confirming tests are not modified and the duplicate-checkout scenario is covered end to end."
+    ]
+  },
+  "patch_evaluation": {},
+  "recovery_success": false,
+  "approval_decision": "",
+  "resumed": false,
+  "resume_count": 0,
+  "sandbox_sessions": 1,
+  "retrieval_calls": 0,
+  "workflow_trace": [
+    {
+      "node": "analyze",
+      "status": "analyzed",
+      "detail": "",
+      "retry_count": 0,
+      "tokens_delta": 381,
+      "timestamp": "2026-08-19T11:52:56Z"
+    },
+    {
+      "node": "plan",
+      "status": "planned",
+      "detail": "The checkout/order-creation path has no idempotency mechanism: each request creates a new order and payment record regardless of whether it carries a client-side checkpoint ID. Duplicate submission...",
+      "retry_count": 0,
+      "tokens_delta": 1809,
+      "timestamp": "2026-08-19T11:53:06Z"
+    },
+    {
+      "node": "execute",
+      "status": "executed",
+      "detail": "steps=10",
+      "retry_count": 0,
+      "tokens_delta": 69020,
+      "timestamp": "2026-08-19T11:53:43Z"
+    },
+    {
+      "node": "verify",
+      "status": "verify_failed",
+      "detail": "FAIL pytest=1 ruff=0 patch=1",
+      "retry_count": 0,
+      "tokens_delta": 0,
+      "timestamp": "2026-08-19T11:53:50Z"
+    },
+    {
+      "node": "diagnose",
+      "status": "retrying",
+      "detail": "BAD_PATCH",
+      "retry_count": 1,
+      "tokens_delta": 8874,
+      "timestamp": "2026-08-19T11:54:59Z"
+    },
+    {
+      "node": "plan",
+      "status": "planned",
+      "detail": "A previous patch made orders.create_order return the existing order on a duplicate key, but the checkout route still runs downstream side effects after create_order returns. Consequently a replayed...",
+      "retry_count": 1,
+      "tokens_delta": 2701,
+      "timestamp": "2026-08-19T11:55:09Z"
+    },
+    {
+      "node": "execute",
+      "status": "executed",
+      "detail": "steps=15",
+      "retry_count": 1,
+      "tokens_delta": 230459,
+      "timestamp": "2026-08-19T11:58:20Z"
+    },
+    {
+      "node": "verify",
+      "status": "verify_failed",
+      "detail": "FAIL pytest=1 ruff=0 patch=1",
+      "retry_count": 1,
+      "tokens_delta": 0,
+      "timestamp": "2026-08-19T11:58:26Z"
+    },
+    {
+      "node": "diagnose",
+      "status": "failed",
+      "detail": "BAD_PATCH",
+      "retry_count": 2,
+      "tokens_delta": 7007,
+      "timestamp": "2026-08-19T11:59:13Z"
+    },
+    {
+      "node": "feedback",
+      "status": "feedback_skipped",
+      "detail": "skipped",
+      "retry_count": 2,
+      "tokens_delta": 0,
+      "timestamp": "2026-08-19T11:59:13Z"
+    },
+    {
+      "node": "mark_needs_human",
+      "status": "needs_human",
+      "detail": "",
+      "retry_count": 2,
+      "tokens_delta": 0,
+      "timestamp": "2026-08-19T11:59:13Z"
+    }
+  ],
+  "checkpoint_stages": [
+    "Issue analyzed",
+    "Plan generated",
+    "Patch generated",
+    "Tests executed"
+  ]
+}

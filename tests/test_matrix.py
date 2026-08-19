@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from eval.matrix import parse_harness_list, run_matrix, tasks_for_split
+from eval.matrix import parse_harness_list, parse_task_ids, run_matrix, tasks_for_split
 from eval.runner import benchmark_spec_sha
 from sandbox.image import DEFAULT_IMAGE
 
@@ -26,6 +26,11 @@ _FAKE_TASKS = [
     {
         "id": "issue-009",
         "split": "hard",
+        "base_commit": "abc123",
+    },
+    {
+        "id": "issue-015",
+        "split": "ablation",
         "base_commit": "abc123",
     },
 ]
@@ -59,9 +64,38 @@ class TestTasksForSplit:
         tasks = tasks_for_split("hard", _FAKE_TASKS)
         assert [t["id"] for t in tasks] == ["issue-008", "issue-009"]
 
+    def test_filters_ablation(self) -> None:
+        tasks = tasks_for_split("ablation", _FAKE_TASKS)
+        assert [t["id"] for t in tasks] == ["issue-015"]
+
+    def test_filters_task_ids_within_split(self) -> None:
+        tasks = tasks_for_split(
+            "hard", _FAKE_TASKS, task_ids="issue-009,issue-008"
+        )
+        assert [t["id"] for t in tasks] == ["issue-009", "issue-008"]
+
+    def test_rejects_task_outside_split(self) -> None:
+        with pytest.raises(ValueError, match="not in split"):
+            tasks_for_split("hard", _FAKE_TASKS, task_ids=["issue-015"])
+
     def test_rejects_unknown_split(self) -> None:
         with pytest.raises(ValueError, match="split"):
             tasks_for_split("all", _FAKE_TASKS)
+
+
+class TestParseTaskIds:
+    def test_parses_and_dedupes(self) -> None:
+        assert parse_task_ids("issue-008, issue-011,issue-008") == [
+            "issue-008",
+            "issue-011",
+        ]
+
+    def test_blank_is_none(self) -> None:
+        assert parse_task_ids(None) is None
+
+    def test_rejects_empty(self) -> None:
+        with pytest.raises(ValueError, match="at least one"):
+            parse_task_ids(" , ")
 
 
 class TestRunMatrix:
@@ -106,6 +140,27 @@ class TestRunMatrix:
         assert "END issue-008 v0 exit=0" in log
         saved = json.loads(Path(manifest["manifest_path"]).read_text(encoding="utf-8"))
         assert saved["cells"][0]["run_path"] == "runs/issue-008-v0.json"
+        assert manifest["settings"]["task_ids"] == ["issue-008", "issue-009"]
+
+    def test_filters_task_ids(self, tmp_path: Path) -> None:
+        calls: list[str] = []
+
+        def fake_solve(task_id: str, **kwargs: Any) -> dict[str, Any]:
+            calls.append(task_id)
+            return _solve_record(task_id, kwargs["harness_version"])
+
+        manifest = run_matrix(
+            split="hard",
+            harnesses=["v0"],
+            n=1,
+            model="fake-model",
+            runs_dir=tmp_path,
+            solve=fake_solve,
+            dataset=_FAKE_TASKS,
+            task_ids="issue-009",
+        )
+        assert calls == ["issue-009"]
+        assert manifest["settings"]["task_ids"] == ["issue-009"]
 
     def test_repeats_n_times(self, tmp_path: Path) -> None:
         calls: list[str] = []

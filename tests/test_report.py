@@ -7,9 +7,13 @@ from pathlib import Path
 
 from eval.report import (
     build_report,
+    first_expected_read_step,
     is_retrieve_record,
     is_solve_record,
+    layer1_gate_rate,
     load_run_files,
+    localization_precision,
+    search_code_calls,
     summarize_solve_cohort,
 )
 
@@ -323,3 +327,128 @@ class TestBuildReport:
         records = load_run_files(tmp_path)
         assert len(records) == 1
         assert records[0]["task_id"] == "issue-009"
+
+
+class TestDerivedMetrics:
+    def test_localization_precision_from_patch_diff(self) -> None:
+        record = _solve(task_id="issue-008", harness="v1", success=True) | {
+            "expected_files": ["app/orders.py"],
+            "patch_diff": (
+                "diff --git a/app/orders.py b/app/orders.py\n+ok\n"
+                "diff --git a/app/auth.py b/app/auth.py\n+lint\n"
+            ),
+        }
+        assert localization_precision(record) == 0.5
+
+    def test_localization_precision_skips_empty_diff(self) -> None:
+        record = _solve(task_id="issue-008", harness="v0", success=False) | {
+            "expected_files": ["app/orders.py"],
+            "patch_diff": "",
+        }
+        assert localization_precision(record) is None
+
+    def test_search_code_calls_and_first_expected_read(self) -> None:
+        record = _solve(task_id="issue-015", harness="v2", success=True) | {
+            "expected_files": ["app/tax.py"],
+            "trajectory": [
+                {
+                    "step": 1,
+                    "tool": "search_code",
+                    "arguments": {"query": "surcharge"},
+                },
+                {
+                    "step": 2,
+                    "tool": "read_file",
+                    "arguments": {"path": "app/orders.py"},
+                },
+                {
+                    "step": 4,
+                    "tool": "read_file",
+                    "arguments": {"path": "app/tax.py"},
+                },
+                {
+                    "step": 5,
+                    "tool": "search_code",
+                    "arguments": {"query": "Nexus"},
+                },
+            ],
+        }
+        assert search_code_calls(record) == 2.0
+        assert first_expected_read_step(record) == 4.0
+
+    def test_layer1_gate_rate_v1_uses_pytest_passed(self) -> None:
+        passed = _solve(task_id="issue-015", harness="v1", success=True) | {
+            "verification": {"pytest_passed": True},
+        }
+        failed = _solve(task_id="issue-015", harness="v1", success=False) | {
+            "verification": {"pytest_passed": False},
+        }
+        assert layer1_gate_rate(passed) == 0.0
+        assert layer1_gate_rate(failed) == 1.0
+
+    def test_layer1_gate_rate_v0_uses_last_run_tests(self) -> None:
+        delivered = _solve(task_id="issue-015", harness="v0", success=False) | {
+            "trajectory": [
+                {
+                    "step": 2,
+                    "tool": "run_tests",
+                    "result": "exit_code=1\nFAILED",
+                },
+                {
+                    "step": 5,
+                    "tool": "run_tests",
+                    "result": "exit_code=0\n1 passed",
+                },
+            ]
+        }
+        skipped = _solve(task_id="issue-015", harness="v0", success=False) | {
+            "trajectory": [{"step": 1, "tool": "read_file", "arguments": {}}],
+        }
+        assert layer1_gate_rate(delivered) == 0.0
+        assert layer1_gate_rate(skipped) == 1.0
+
+    def test_cohort_averages_derived_metrics(self) -> None:
+        rows = summarize_solve_cohort(
+            [
+                _solve(task_id="issue-015", harness="v2", success=True)
+                | {
+                    "expected_files": ["app/tax.py"],
+                    "patch_diff": "diff --git a/app/tax.py b/app/tax.py\n+ok\n",
+                    "verification": {"pytest_passed": True},
+                    "trajectory": [
+                        {
+                            "step": 1,
+                            "tool": "search_code",
+                            "arguments": {"query": "levy"},
+                        },
+                        {
+                            "step": 2,
+                            "tool": "read_file",
+                            "arguments": {"path": "app/tax.py"},
+                        },
+                    ],
+                },
+                _solve(task_id="issue-016", harness="v2", success=False)
+                | {
+                    "expected_files": ["app/notifications.py"],
+                    "patch_diff": (
+                        "diff --git a/app/notifications.py "
+                        "b/app/notifications.py\n+ok\n"
+                        "diff --git a/app/auth.py b/app/auth.py\n+lint\n"
+                    ),
+                    "verification": {"pytest_passed": False},
+                    "trajectory": [
+                        {
+                            "step": 3,
+                            "tool": "read_file",
+                            "arguments": {"path": "app/orders.py"},
+                        }
+                    ],
+                },
+            ]
+        )
+        row = rows[0]
+        assert row["localization_precision"] == 0.75
+        assert row["layer1_gate_rate"] == 0.5
+        assert row["search_code_calls"] == 0.5
+        assert row["first_expected_read_step"] == 2.0

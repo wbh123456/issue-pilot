@@ -97,9 +97,9 @@ class TestDataset:
     def test_tasks_have_hidden_gold_and_split(self) -> None:
         tasks = load_dataset()
         ids = [t["id"] for t in tasks]
-        assert ids == [f"issue-{i:03d}" for i in range(1, 15)]
+        assert ids == [f"issue-{i:03d}" for i in range(1, 18)]
         splits = {t["split"] for t in tasks}
-        assert splits == {"smoke", "hard"}
+        assert splits == {"smoke", "hard", "ablation"}
         for task in tasks:
             gold = GOLD_DIR / task["gold_file"]
             assert gold.is_file(), task["id"]
@@ -125,8 +125,12 @@ class TestDataset:
         assert "GOLD" not in readme
 
     def test_hard_prompts_do_not_spell_the_fix(self) -> None:
-        tasks = [task for task in load_dataset() if task.get("split") == "hard"]
-        assert tasks, "expected a hard split"
+        tasks = [
+            task
+            for task in load_dataset()
+            if task.get("split") in {"hard", "ablation"}
+        ]
+        assert tasks, "expected hard or ablation tasks"
         for task in tasks:
             issue_idents = _idents(task["issue"])
             leaked = sorted(issue_idents & _forbidden_hard_idents(task))
