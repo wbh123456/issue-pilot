@@ -122,3 +122,73 @@ def git_sha(repo_path: Path) -> str | None:
         return None
     sha = (proc.stdout or "").strip()
     return sha or None
+
+
+def _unified_new_file(rel: str, content: str) -> str:
+    """Build an applyable unified diff for a newly created file."""
+    posix = Path(rel).as_posix()
+    lines = content.splitlines()
+    n = len(lines)
+    header = (
+        f"diff --git a/{posix} b/{posix}\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        f"+++ b/{posix}\n"
+    )
+    if n == 0:
+        return header
+    hunk = f"@@ -0,0 +1,{n} @@\n" if n != 1 else "@@ -0,0 +1 @@\n"
+    body = "".join(f"+{line}\n" for line in lines)
+    if content.endswith("\n") or not content:
+        return header + hunk + body
+    return header + hunk + body + "\\ No newline at end of file\n"
+
+
+def capture_patch_diff(repo_path: Path) -> str:
+    """Return the working-tree patch against HEAD for offline gold rescoring.
+
+    Host git only (evaluator, not an agent tool). Tracked edits come from
+    ``git diff HEAD``; untracked files are emitted as new-file unified diffs.
+    Gold staging under ``tests/_gold/`` is omitted. Missing repo or git yields
+    an empty string rather than raising.
+    """
+    if not repo_path.is_dir():
+        return ""
+    try:
+        diff = _run_host_git(repo_path, "diff", "HEAD", "--")
+        others = _run_host_git(
+            repo_path, "ls-files", "--others", "--exclude-standard", "-z"
+        )
+    except RuntimeError:
+        return ""
+
+    if diff.returncode not in (0, 1):
+        return ""
+
+    parts: list[str] = []
+    tracked = (diff.stdout or "").rstrip()
+    if tracked:
+        parts.append(tracked)
+
+    if others.returncode == 0 and others.stdout:
+        for rel in others.stdout.split("\0"):
+            if not rel:
+                continue
+            if GOLD_STAGING_DIRNAME in Path(rel).parts:
+                continue
+            file_path = repo_path / rel
+            try:
+                text = file_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                posix = Path(rel).as_posix()
+                parts.append(
+                    f"diff --git a/{posix} b/{posix}\n"
+                    "new file mode 100644\n"
+                    f"Binary file {posix} added\n"
+                )
+                continue
+            parts.append(_unified_new_file(rel, text).rstrip("\n"))
+
+    if not parts:
+        return ""
+    return "\n".join(parts).rstrip() + "\n"

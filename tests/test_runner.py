@@ -281,6 +281,8 @@ class TestSolveTaskDispatch:
         assert record["success"] is True
         assert record["temperature"] == 0
         assert record["harness_git_sha"] == "deadbeef"
+        assert record["benchmark_spec_sha"] == runner.benchmark_spec_sha()
+        assert record["patch_diff"] == ""
         assert record["llm_calls"] == 4
         assert record["tokens"] == 120
         assert "analysis" not in record
@@ -350,6 +352,38 @@ class TestSolveTaskDispatch:
         assert "retrieval_mode" not in record
         assert "recall_at_5" not in record
         assert Path(record["run_path"]).name.startswith("issue-001-v1-")
+
+    def test_records_patch_diff_from_worktree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]
+    ) -> None:
+        monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
+        task = _fake_task()
+
+        with (
+            patch.object(runner, "get_task", return_value=task),
+            patch.object(runner, "resolve_repo_path", return_value=Path(task["repo_path"])),
+            patch.object(runner, "reset_repo"),
+            patch.object(runner, "_run_harness", return_value=_agent_result("v1")),
+            patch.object(
+                runner,
+                "run_gold_test",
+                return_value={
+                    "command": "pytest ...",
+                    "exit_code": 0,
+                    "passed": True,
+                    "output": "exit_code=0",
+                },
+            ),
+            patch.object(runner, "create_client", return_value=object()),
+            patch.object(runner, "default_model", return_value="fake-model"),
+            patch.object(
+                runner, "capture_patch_diff", return_value="diff --git a/app/auth.py\n"
+            ),
+        ):
+            record = solve_task("issue-001", harness_version="v1")
+
+        assert record["patch_diff"] == "diff --git a/app/auth.py\n"
+        assert len(record["benchmark_spec_sha"]) == 64
 
     def test_records_recovery_success_only_after_retry(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_sandbox: type[FakeSandbox]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -17,7 +18,13 @@ from agent.nodes.approve import review_payload
 from agent.state import reached_checkpoint_stages
 from agent.tools.shell import run_tests
 from eval.metrics import recall_at_k
-from eval.repository import GOLD_STAGING_DIRNAME, git_sha, reset_repo, verify_resume_worktree
+from eval.repository import (
+    GOLD_STAGING_DIRNAME,
+    capture_patch_diff,
+    git_sha,
+    reset_repo,
+    verify_resume_worktree,
+)
 from eval.session import (
     RunSession,
     load_session,
@@ -55,6 +62,28 @@ def get_task(task_id: str, path: Path = DATASET_PATH) -> dict[str, Any]:
             return task
     known = ", ".join(t["id"] for t in load_dataset(path))
     raise KeyError(f"unknown task_id={task_id!r}; known: {known}")
+
+
+def benchmark_spec_sha(
+    *,
+    dataset_path: Path = DATASET_PATH,
+    gold_dir: Path = GOLD_DIR,
+) -> str:
+    """Fingerprint of issue text + hidden gold. Changing either splits cohorts.
+
+    Hashes the on-disk ``dataset.json`` bytes, then each ``eval/gold/*.py``
+    file in name order (name + contents). Not a hand-maintained version number.
+    """
+    hasher = hashlib.sha256()
+    hasher.update(dataset_path.read_bytes())
+    gold_root = Path(gold_dir)
+    if gold_root.is_dir():
+        for path in sorted(gold_root.glob("*.py"), key=lambda item: item.name):
+            hasher.update(b"\n")
+            hasher.update(path.name.encode("utf-8"))
+            hasher.update(b"\0")
+            hasher.update(path.read_bytes())
+    return hasher.hexdigest()
 
 
 def resolve_repo_path(task: dict[str, Any]) -> Path:
@@ -367,6 +396,8 @@ def _build_run_record(
         "model": model_name,
         "temperature": AGENT_TEMPERATURE,
         "harness_git_sha": git_sha(HARNESS_ROOT),
+        "benchmark_spec_sha": benchmark_spec_sha(),
+        "patch_diff": capture_patch_diff(repo_path),
         "success": bool(gold and gold.get("passed")) and error_type is None,
         "gold_test": gold,
         "tool_call_count": agent_result.get("tool_call_count"),
