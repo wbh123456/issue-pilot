@@ -1,0 +1,449 @@
+{
+  "runs_dir": "C:\\Users\\Aaron\\issue-pilot\\runs",
+  "filters": {
+    "split": "hard",
+    "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+    "model": null,
+    "latest_per_cell": true
+  },
+  "solve_cohorts": [
+    {
+      "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+      "model": "deepseek-v4-flash",
+      "temperature": 0,
+      "sandbox_image": "issue-pilot-sandbox:py312",
+      "benchmark_spec_sha": "a303e33b8b9b4d7539c492cb17b94076757b1b39594811a6ce0ca0dab9b153dd",
+      "n": 21,
+      "n_cells": 21,
+      "harnesses": [
+        {
+          "harness_version": "v0",
+          "n": 7,
+          "n_cells": 7,
+          "cells": [
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 66523.0,
+              "file_reads": 11.0,
+              "tool_calls": 19.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 33.17618109995965,
+              "task_id": "issue-008"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 37860.0,
+              "file_reads": 5.0,
+              "tool_calls": 12.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 24.731276100035757,
+              "task_id": "issue-009"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 1.0,
+              "tokens": 38387.0,
+              "file_reads": 5.0,
+              "tool_calls": 13.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 25.582484300015494,
+              "task_id": "issue-010"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 122125.0,
+              "file_reads": 15.0,
+              "tool_calls": 26.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 56.03667229996063,
+              "task_id": "issue-011"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 1.0,
+              "tokens": 26835.0,
+              "file_reads": 3.0,
+              "tool_calls": 13.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 18.341249600052834,
+              "task_id": "issue-012"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 1.0,
+              "tokens": 47095.0,
+              "file_reads": 6.0,
+              "tool_calls": 13.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 25.944880399969406,
+              "task_id": "issue-013"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 39276.0,
+              "file_reads": 5.0,
+              "tool_calls": 14.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 20.80590979999397,
+              "task_id": "issue-014"
+            }
+          ],
+          "resolve_rate": 0.42857142857142855,
+          "tokens": 54014.42857142857,
+          "file_reads": 7.142857142857143,
+          "tool_calls": 15.714285714285714,
+          "retries": 0.0,
+          "recovery_rate": 0.0,
+          "human_retries": 0.0,
+          "latency_s": 29.231236228569678
+        },
+        {
+          "harness_version": "v1",
+          "n": 7,
+          "n_cells": 7,
+          "cells": [
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 57462.0,
+              "file_reads": 7.0,
+              "tool_calls": 14.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 93.29073589993641,
+              "task_id": "issue-008"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 57915.0,
+              "file_reads": 8.0,
+              "tool_calls": 15.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 104.09010519995354,
+              "task_id": "issue-009"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 1.0,
+              "tokens": 84432.0,
+              "file_reads": 10.0,
+              "tool_calls": 20.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 110.97530569997616,
+              "task_id": "issue-010"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 427773.0,
+              "file_reads": 45.0,
+              "tool_calls": 73.0,
+              "retries": 2.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 323.5769720999524,
+              "task_id": "issue-011"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 1.0,
+              "tokens": 109007.0,
+              "file_reads": 9.0,
+              "tool_calls": 28.0,
+              "retries": 2.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 131.57437799999025,
+              "task_id": "issue-012"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 1.0,
+              "tokens": 53332.0,
+              "file_reads": 6.0,
+              "tool_calls": 13.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 72.53709919995163,
+              "task_id": "issue-013"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 95525.0,
+              "file_reads": 9.0,
+              "tool_calls": 27.0,
+              "retries": 2.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 179.93780259997584,
+              "task_id": "issue-014"
+            }
+          ],
+          "resolve_rate": 0.42857142857142855,
+          "tokens": 126492.28571428571,
+          "file_reads": 13.428571428571429,
+          "tool_calls": 27.142857142857142,
+          "retries": 0.8571428571428571,
+          "recovery_rate": 0.0,
+          "human_retries": 0.0,
+          "latency_s": 145.1403426713909
+        },
+        {
+          "harness_version": "v2",
+          "n": 7,
+          "n_cells": 7,
+          "cells": [
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 175561.0,
+              "file_reads": 22.0,
+              "tool_calls": 33.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 137.96328120003454,
+              "task_id": "issue-008"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 70430.0,
+              "file_reads": 5.0,
+              "tool_calls": 16.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 111.64768960000947,
+              "task_id": "issue-009"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 1.0,
+              "tokens": 95819.0,
+              "file_reads": 13.0,
+              "tool_calls": 22.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 96.40282049996313,
+              "task_id": "issue-010"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 378140.0,
+              "file_reads": 34.0,
+              "tool_calls": 58.0,
+              "retries": 2.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 433.3288247999735,
+              "task_id": "issue-011"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 1.0,
+              "tokens": 115732.0,
+              "file_reads": 11.0,
+              "tool_calls": 25.0,
+              "retries": 2.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 181.4559132999275,
+              "task_id": "issue-012"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 1.0,
+              "tokens": 74664.0,
+              "file_reads": 9.0,
+              "tool_calls": 16.0,
+              "retries": 0.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 91.3949953999836,
+              "task_id": "issue-013"
+            },
+            {
+              "n": 1,
+              "resolve_rate": 0.0,
+              "tokens": 193243.0,
+              "file_reads": 20.0,
+              "tool_calls": 44.0,
+              "retries": 2.0,
+              "recovery_rate": 0.0,
+              "human_retries": 0.0,
+              "latency_s": 227.52770770003553,
+              "task_id": "issue-014"
+            }
+          ],
+          "resolve_rate": 0.42857142857142855,
+          "tokens": 157655.57142857142,
+          "file_reads": 16.285714285714285,
+          "tool_calls": 30.571428571428573,
+          "retries": 0.8571428571428571,
+          "recovery_rate": 0.0,
+          "human_retries": 0.0,
+          "latency_s": 182.81731892856104
+        }
+      ]
+    }
+  ],
+  "retrieval": [
+    {
+      "task_id": "issue-008",
+      "embedder": "HashingEmbedder",
+      "query_mode": "issue",
+      "grep": 0.0,
+      "bm25": 0.0,
+      "dense": 1.0,
+      "hybrid": 1.0
+    },
+    {
+      "task_id": "issue-008",
+      "embedder": "FastEmbedEmbedder",
+      "query_mode": "issue",
+      "grep": 0.0,
+      "bm25": 0.0,
+      "dense": 1.0,
+      "hybrid": 0.0
+    },
+    {
+      "task_id": "issue-009",
+      "embedder": "HashingEmbedder",
+      "query_mode": "issue",
+      "grep": 0.5,
+      "bm25": 1.0,
+      "dense": 0.5,
+      "hybrid": 0.5
+    },
+    {
+      "task_id": "issue-009",
+      "embedder": "FastEmbedEmbedder",
+      "query_mode": "issue",
+      "grep": 0.5,
+      "bm25": 1.0,
+      "dense": 1.0,
+      "hybrid": 0.5
+    },
+    {
+      "task_id": "issue-010",
+      "embedder": "HashingEmbedder",
+      "query_mode": "issue",
+      "grep": 1.0,
+      "bm25": 0.5,
+      "dense": 0.5,
+      "hybrid": 0.5
+    },
+    {
+      "task_id": "issue-010",
+      "embedder": "FastEmbedEmbedder",
+      "query_mode": "issue",
+      "grep": 1.0,
+      "bm25": 0.5,
+      "dense": 0.5,
+      "hybrid": 1.0
+    },
+    {
+      "task_id": "issue-011",
+      "embedder": "HashingEmbedder",
+      "query_mode": "issue",
+      "grep": 0.6666666666666666,
+      "bm25": 0.6666666666666666,
+      "dense": 0.0,
+      "hybrid": 0.6666666666666666
+    },
+    {
+      "task_id": "issue-011",
+      "embedder": "FastEmbedEmbedder",
+      "query_mode": "issue",
+      "grep": 0.6666666666666666,
+      "bm25": 0.6666666666666666,
+      "dense": 0.6666666666666666,
+      "hybrid": 1.0
+    },
+    {
+      "task_id": "issue-012",
+      "embedder": "HashingEmbedder",
+      "query_mode": "issue",
+      "grep": 1.0,
+      "bm25": 1.0,
+      "dense": 0.5,
+      "hybrid": 0.5
+    },
+    {
+      "task_id": "issue-012",
+      "embedder": "FastEmbedEmbedder",
+      "query_mode": "issue",
+      "grep": 1.0,
+      "bm25": 1.0,
+      "dense": 0.5,
+      "hybrid": 1.0
+    },
+    {
+      "task_id": "issue-013",
+      "embedder": "HashingEmbedder",
+      "query_mode": "issue",
+      "grep": 0.0,
+      "bm25": 0.5,
+      "dense": 0.0,
+      "hybrid": 0.5
+    },
+    {
+      "task_id": "issue-013",
+      "embedder": "FastEmbedEmbedder",
+      "query_mode": "issue",
+      "grep": 0.0,
+      "bm25": 0.5,
+      "dense": 0.5,
+      "hybrid": 0.5
+    },
+    {
+      "task_id": "issue-014",
+      "embedder": "HashingEmbedder",
+      "query_mode": "issue",
+      "grep": 0.0,
+      "bm25": 0.3333333333333333,
+      "dense": 0.0,
+      "hybrid": 0.3333333333333333
+    },
+    {
+      "task_id": "issue-014",
+      "embedder": "FastEmbedEmbedder",
+      "query_mode": "issue",
+      "grep": 0.0,
+      "bm25": 0.3333333333333333,
+      "dense": 0.3333333333333333,
+      "hybrid": 0.6666666666666666
+    }
+  ],
+  "harness_git_sha": "4173d6ddfaec3fb76bc8dbb400ed7908a1ad4310",
+  "harness_root": "C:\\Users\\Aaron\\issue-pilot"
+}

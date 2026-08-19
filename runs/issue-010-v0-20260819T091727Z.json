@@ -1,0 +1,407 @@
+{
+  "task_id": "issue-010",
+  "harness_version": "v0",
+  "difficulty": "hard",
+  "split": "hard",
+  "issue": "After I granted a teammate staff access she still could not open the staff pages until she signed in again.",
+  "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+  "repo_path": "C:\\Users\\Aaron\\issue-pilot-benchmark",
+  "expected_files": [
+    "app/auth.py",
+    "app/users.py"
+  ],
+  "model": "deepseek-v4-flash",
+  "temperature": 0,
+  "harness_git_sha": "4173d6ddfaec3fb76bc8dbb400ed7908a1ad4310",
+  "benchmark_spec_sha": "a303e33b8b9b4d7539c492cb17b94076757b1b39594811a6ce0ca0dab9b153dd",
+  "patch_diff": "diff --git a/app/auth.py b/app/auth.py\nindex 9e7ced6..6028503 100644\n--- a/app/auth.py\n+++ b/app/auth.py\n@@ -34,8 +34,10 @@ def get_current_user_id(token: str) -> int:\n \n \n def require_admin(token: str) -> int:\n-    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n-    payload = decode_token(token)\n-    if payload.get(\"role\") != \"admin\":\n+    \"\"\"Ensure the caller is currently an admin; return the caller's user id.\"\"\"\n+    user_id = get_current_user_id(token)\n+    from app import users\n+\n+    if users.get_user(user_id).get(\"role\") != \"admin\":\n         raise HTTPException(status_code=403, detail=\"admin required\")\n-    return payload[\"user_id\"]\n+    return user_id\n",
+  "success": true,
+  "gold_test": {
+    "command": "pytest tests/_gold/test_issue_010.py::test_promote_takes_effect_without_relogin -q",
+    "exit_code": 0,
+    "passed": true,
+    "output": "exit_code=0\ncommand: pytest tests/_gold/test_issue_010.py::test_promote_takes_effect_without_relogin -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/_gold/test_issue_010.py::test_promote_takes_effect_without_relogin\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/_gold/test_issue_010.py::test_promote_takes_effect_without_relogin\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.58s"
+  },
+  "tool_call_count": 13,
+  "file_reads": 5,
+  "steps": 9,
+  "llm_calls": 9,
+  "tokens": 38387,
+  "prompt_tokens": 36458,
+  "completion_tokens": 1929,
+  "estimated_cost": null,
+  "latency": 25.582484300015494,
+  "termination": "completed",
+  "final_answer": "Fixed. The problem was that `auth.require_admin` read the `role` from the JWT payload, which is set at login time. When a user was promoted to admin afterward, their existing token still reflected the old (or missing) role, so they kept getting 403 until they logged in again.\n\nThe fix makes `require_admin` resolve the caller's user id from the token and then check the user's current role in the user store, so role changes take effect immediately without requiring a new login. This matches the already-correct behavior in the `/reports/sales` endpoint. Tests pass.",
+  "trajectory": [
+    {
+      "step": 1,
+      "tool_call_id": "call_00_kfR6pHNIM8Evuj0lo2oS9775",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_s7d3APntrkGsLryTXbDD1057",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=1\ncommand: pytest tests/test_users_stale_role.py -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n_________________ test_promoted_user_is_not_stuck_on_old_token _________________\n\n>   ???\nE   assert 403 != 403\nE    +  where 403 = <Response [403 Forbidden]>.status_code\n\nC:\\Users\\Aaron\\issue-pilot-benchmark\\tests\\test_users_stale_role.py:25: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n1 failed, 3 warnings in 0.62s"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_Np9nUDDBMtHOToWUizjF7794",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_users_stale_role.py"
+      },
+      "result": "\"\"\"Promotion vs an already-issued access token.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app import users\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef test_promoted_user_is_not_stuck_on_old_token():\n    login = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert login.status_code == 200\n    token = login.json()[\"access_token\"]\n\n    users.promote_user(2)\n\n    r = client.post(\n        \"/users/3/promote\",\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 403\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_6XiU8uyGinT9PjUOPoPa6533",
+      "tool": "list_files",
+      "arguments": {
+        "path": "app"
+      },
+      "result": "app/__init__.py\napp/audit.py\napp/auth.py\napp/calculator.py\napp/campaigns.py\napp/catalog.py\napp/fulfillment.py\napp/inventory.py\napp/ledger.py\napp/loyalty.py\napp/main.py\napp/notifications.py\napp/orders.py\napp/payments.py\napp/pricing.py\napp/reports.py\napp/settings.py\napp/shipping.py\napp/support.py\napp/tax.py\napp/users.py\napp/validators.py\napp/webhooks.py"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_ET_t0QhQgErICsVJTfS1NU58361",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/auth.py"
+      },
+      "result": "\"\"\"JWT helpers for access tokens.\"\"\"\n\nfrom datetime import datetime, timedelta, timezone\n\nimport jwt\nfrom fastapi import HTTPException\n\nSECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\nALGO = \"HS256\"\n\n\ndef create_token(user_id: int, expires_in_seconds: int = 3600) -> str:\n    \"\"\"Create a signed JWT access token.\"\"\"\n    payload = {\n        \"user_id\": user_id,\n        \"exp\": datetime.now(timezone.utc)\n        + timedelta(seconds=expires_in_seconds),\n    }\n    return jwt.encode(payload, SECRET, algorithm=ALGO)\n\n\ndef decode_token(token: str) -> dict:\n    \"\"\"Decode a signed JWT and return its payload.\"\"\"\n    try:\n        return jwt.decode(token, SECRET, algorithms=[ALGO])\n    except jwt.InvalidSignatureError as exc:\n        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n\n\ndef get_current_user_id(token: str) -> int:\n    \"\"\"Return the user_id claim from a valid token.\"\"\"\n    payload = decode_token(token)\n    return payload[\"user_id\"]\n\n\ndef require_admin(token: str) -> int:\n    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n    payload = decode_token(token)\n    if payload.get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return payload[\"user_id\"]\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_01_ET_DVU9p3iJfKTLvWf6xZGU4237",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/users.py"
+      },
+      "result": "\"\"\"In-memory user store and login.\"\"\"\n\nfrom copy import deepcopy\n\nfrom fastapi import HTTPException\n\nfrom app import auth\n\n_DEFAULT_USERS: dict[int, dict] = {\n    1: {\"email\": \"admin@example.com\", \"password\": \"adminpass1\", \"role\": \"admin\"},\n    2: {\"email\": \"alice@example.com\", \"password\": \"alicepass1\", \"role\": \"user\"},\n    3: {\"email\": \"bob@example.com\", \"password\": \"bobpass1\", \"role\": \"user\"},\n}\n\n_USERS: dict[int, dict] = deepcopy(_DEFAULT_USERS)\n\n\ndef get_user(user_id: int) -> dict:\n    \"\"\"Return the user record for ``user_id``.\"\"\"\n    return _USERS[user_id]\n\n\ndef find_user_by_email(email: str) -> tuple[int, dict] | None:\n    for uid, u in _USERS.items():\n        if u[\"email\"] == email:\n            return uid, u\n    return None\n\n\ndef login(email: str, password: str) -> str:\n    \"\"\"Verify credentials and return an access token.\"\"\"\n    match = find_user_by_email(email)\n    if match is None:\n        raise HTTPException(status_code=401, detail=\"invalid credentials\")\n    uid, user = match\n    if user[\"password\"] != password:\n        raise HTTPException(status_code=401, detail=\"invalid credentials\")\n    from app import notifications\n\n    notifications.capture_contact(uid, user[\"email\"])\n    return auth.create_token(user_id=uid)\n\n\ndef change_email(user_id: int, email: str) -> dict:\n    from app import validators\n\n    if not validators.is_valid_email(email) or not email:\n        raise HTTPException(status_code=400, detail=\"invalid email\")\n    taken = find_user_by_email(email)\n    if taken is not None and taken[0] != user_id:\n        raise HTTPException(status_code=409, detail=\"email in use\")\n    user = get_user(user_id)\n    user[\"email\"] = email\n    return {\"id\": user_id, \"email\": email, \"role\": user[\"role\"]}\n\n\ndef promote_user(target_id: int) -> dict:\n    user = get_user(target_id)\n    user[\"role\"] = \"admin\"\n    return user\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore the seeded users.\"\"\"\n    from app import notifications\n\n    _USERS.clear()\n    _USERS.update(deepcopy(_DEFAULT_USERS))\n    notifications.reset_store()\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_3P8aOaIgNgHEVZR0x2l04299",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import (\n    auth,\n    calculator,\n    inventory,\n    orders,\n    reports,\n    users,\n    validators,\n)\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\nclass EmailBody(BaseModel):\n    email: str\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n\n\n@app.patch(\"/users/me/email\")\ndef change_email_endpoint(body: EmailBody, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return users.change_email(user_id, body.email)\n\n\n@app.get(\"/notifications/inbox\")\ndef inbox_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    from app import notifications\n\n    return {\"messages\": notifications.list_messages(user_id)}\n\n\n@app.get(\"/audit/events\")\ndef audit_events_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    from app import audit\n\n    return {\"events\": audit.events_for_order(order_id)}\n\n\n@app.get(\"/reports/sales\")\ndef sales_report_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    if users.get_user(user_id).get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return reports.build_snapshot()\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_01_p8XnBka1sp72zbkIEOFd3863",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/audit.py"
+      },
+      "result": "\"\"\"Append-only activity stream for storefront operations.\"\"\"\n\nfrom __future__ import annotations\n\nKIND_SALE = \"sale\"\nKIND_CANCEL = \"cancellation\"\n\n\nclass ActivityEvent:\n    def __init__(self, kind: str, actor_id: int, order_id: int, **extra: object) -> None:\n        self.kind = kind\n        self.actor_id = actor_id\n        self.order_id = order_id\n        self.extra = extra\n\n    def as_dict(self) -> dict:\n        payload = {\n            \"kind\": self.kind,\n            \"actor_id\": self.actor_id,\n            \"order_id\": self.order_id,\n        }\n        payload.update(self.extra)\n        return payload\n\n    def is_open_sale(self) -> bool:\n        return self.kind == KIND_SALE\n\n\n_EVENTS: list[ActivityEvent] = []\n\n\ndef append_event(kind: str, actor_id: int, order_id: int, **extra: object) -> dict:\n    event = ActivityEvent(kind, actor_id, order_id, **extra)\n    _EVENTS.append(event)\n    return event.as_dict()\n\n\ndef record_sale(actor_id: int, order_id: int, total: float) -> dict:\n    return append_event(KIND_SALE, actor_id, order_id, total=float(total))\n\n\ndef record_cancellation(actor_id: int, order_id: int) -> dict:\n    return append_event(KIND_CANCEL, actor_id, order_id)\n\n\ndef events_for_order(order_id: int) -> list[dict]:\n    return [event.as_dict() for event in _EVENTS if event.order_id == order_id]\n\n\ndef events_for_actor(actor_id: int) -> list[dict]:\n    return [event.as_dict() for event in _EVENTS if event.actor_id == actor_id]\n\n\ndef latest_for_order(order_id: int) -> dict | None:\n    matches = events_for_order(order_id)\n    if not matches:\n        return None\n    return matches[-1]\n\n\ndef open_sales() -> list[dict]:\n    latest: dict[int, ActivityEvent] = {}\n    for event in _EVENTS:\n        latest[event.order_id] = event\n    return [event.as_dict() for event in latest.values() if event.is_open_sale()]\n\n\ndef count() -> int:\n    return len(_EVENTS)\n\n\ndef reset_store() -> None:\n    _EVENTS.clear()\n"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_qzv8POR8lEtdsHqdOcbp3310",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "role"
+      },
+      "result": "app/auth.py:39:    if payload.get(\"role\") != \"admin\":\napp/main.py:62:    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\napp/main.py:70:    return {\"id\": user_id, \"role\": user[\"role\"]}\napp/main.py:141:    if users.get_user(user_id).get(\"role\") != \"admin\":\napp/users.py:10:    1: {\"email\": \"admin@example.com\", \"password\": \"adminpass1\", \"role\": \"admin\"},\napp/users.py:11:    2: {\"email\": \"alice@example.com\", \"password\": \"alicepass1\", \"role\": \"user\"},\napp/users.py:12:    3: {\"email\": \"bob@example.com\", \"password\": \"bobpass1\", \"role\": \"user\"},\napp/users.py:54:    return {\"id\": user_id, \"email\": email, \"role\": user[\"role\"]}\napp/users.py:59:    user[\"role\"] = \"admin\""
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_01_xsdNH3rH2asepuHqi3zO1980",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "require_admin"
+      },
+      "result": "app/auth.py:36:def require_admin(token: str) -> int:\napp/main.py:68:    auth.require_admin(token)"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_NUYwXRcPjDO1ChR7hQPS5860",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/auth.py",
+        "old_str": "def require_admin(token: str) -> int:\n    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n    payload = decode_token(token)\n    if payload.get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return payload[\"user_id\"]",
+        "new_str": "def require_admin(token: str) -> int:\n    \"\"\"Ensure the caller is currently an admin; return the caller's user id.\"\"\"\n    user_id = get_current_user_id(token)\n    from app import users\n\n    if users.get_user(user_id).get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return user_id"
+      },
+      "result": "Updated app/auth.py (280 -> 329 chars)"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_ET_EtWiaPOAAif7joII6FIV2936",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_users_stale_role.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.51s"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_ET_teFVDjyc3ZfI1N9kTbua3962",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "--- status ---\nM app/auth.py\n--- diff ---\ndiff --git a/app/auth.py b/app/auth.py\nindex 9e7ced6..6028503 100644\n--- a/app/auth.py\n+++ b/app/auth.py\n@@ -34,8 +34,10 @@ def get_current_user_id(token: str) -> int:\n \n \n def require_admin(token: str) -> int:\n-    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n-    payload = decode_token(token)\n-    if payload.get(\"role\") != \"admin\":\n+    \"\"\"Ensure the caller is currently an admin; return the caller's user id.\"\"\"\n+    user_id = get_current_user_id(token)\n+    from app import users\n+\n+    if users.get_user(user_id).get(\"role\") != \"admin\":\n         raise HTTPException(status_code=403, detail=\"admin required\")\n-    return payload[\"user_id\"]\n+    return user_id"
+    }
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": "\nYou are a coding agent fixing one issue in a sandboxed repository.\n\nInspect relevant files before editing.\nMake the smallest correct change.\nUse run_tests after editing.\nUse git_diff to inspect your final changes.\nDo not modify tests.\nWhen the issue is fixed and tests pass, respond with a concise final answer\nand make no further tool calls.\n"
+    },
+    {
+      "role": "user",
+      "content": "Fix this issue:\n\nAfter I granted a teammate staff access she still could not open the staff pages until she signed in again."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_kfR6pHNIM8Evuj0lo2oS9775",
+          "function": {
+            "arguments": "{\"path\": \".\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_s7d3APntrkGsLryTXbDD1057",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_kfR6pHNIM8Evuj0lo2oS9775",
+      "content": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_s7d3APntrkGsLryTXbDD1057",
+      "content": "exit_code=1\ncommand: pytest tests/test_users_stale_role.py -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n_________________ test_promoted_user_is_not_stuck_on_old_token _________________\n\n>   ???\nE   assert 403 != 403\nE    +  where 403 = <Response [403 Forbidden]>.status_code\n\nC:\\Users\\Aaron\\issue-pilot-benchmark\\tests\\test_users_stale_role.py:25: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n1 failed, 3 warnings in 0.62s"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_Np9nUDDBMtHOToWUizjF7794",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_users_stale_role.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_6XiU8uyGinT9PjUOPoPa6533",
+          "function": {
+            "arguments": "{\"path\": \"app\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_Np9nUDDBMtHOToWUizjF7794",
+      "content": "\"\"\"Promotion vs an already-issued access token.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app import users\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef test_promoted_user_is_not_stuck_on_old_token():\n    login = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert login.status_code == 200\n    token = login.json()[\"access_token\"]\n\n    users.promote_user(2)\n\n    r = client.post(\n        \"/users/3/promote\",\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 403\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_6XiU8uyGinT9PjUOPoPa6533",
+      "content": "app/__init__.py\napp/audit.py\napp/auth.py\napp/calculator.py\napp/campaigns.py\napp/catalog.py\napp/fulfillment.py\napp/inventory.py\napp/ledger.py\napp/loyalty.py\napp/main.py\napp/notifications.py\napp/orders.py\napp/payments.py\napp/pricing.py\napp/reports.py\napp/settings.py\napp/shipping.py\napp/support.py\napp/tax.py\napp/users.py\napp/validators.py\napp/webhooks.py"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_t0QhQgErICsVJTfS1NU58361",
+          "function": {
+            "arguments": "{\"path\": \"app/auth.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_ET_DVU9p3iJfKTLvWf6xZGU4237",
+          "function": {
+            "arguments": "{\"path\": \"app/users.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_t0QhQgErICsVJTfS1NU58361",
+      "content": "\"\"\"JWT helpers for access tokens.\"\"\"\n\nfrom datetime import datetime, timedelta, timezone\n\nimport jwt\nfrom fastapi import HTTPException\n\nSECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\nALGO = \"HS256\"\n\n\ndef create_token(user_id: int, expires_in_seconds: int = 3600) -> str:\n    \"\"\"Create a signed JWT access token.\"\"\"\n    payload = {\n        \"user_id\": user_id,\n        \"exp\": datetime.now(timezone.utc)\n        + timedelta(seconds=expires_in_seconds),\n    }\n    return jwt.encode(payload, SECRET, algorithm=ALGO)\n\n\ndef decode_token(token: str) -> dict:\n    \"\"\"Decode a signed JWT and return its payload.\"\"\"\n    try:\n        return jwt.decode(token, SECRET, algorithms=[ALGO])\n    except jwt.InvalidSignatureError as exc:\n        raise HTTPException(status_code=401, detail=\"invalid token signature\") from exc\n\n\ndef get_current_user_id(token: str) -> int:\n    \"\"\"Return the user_id claim from a valid token.\"\"\"\n    payload = decode_token(token)\n    return payload[\"user_id\"]\n\n\ndef require_admin(token: str) -> int:\n    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n    payload = decode_token(token)\n    if payload.get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return payload[\"user_id\"]\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_ET_DVU9p3iJfKTLvWf6xZGU4237",
+      "content": "\"\"\"In-memory user store and login.\"\"\"\n\nfrom copy import deepcopy\n\nfrom fastapi import HTTPException\n\nfrom app import auth\n\n_DEFAULT_USERS: dict[int, dict] = {\n    1: {\"email\": \"admin@example.com\", \"password\": \"adminpass1\", \"role\": \"admin\"},\n    2: {\"email\": \"alice@example.com\", \"password\": \"alicepass1\", \"role\": \"user\"},\n    3: {\"email\": \"bob@example.com\", \"password\": \"bobpass1\", \"role\": \"user\"},\n}\n\n_USERS: dict[int, dict] = deepcopy(_DEFAULT_USERS)\n\n\ndef get_user(user_id: int) -> dict:\n    \"\"\"Return the user record for ``user_id``.\"\"\"\n    return _USERS[user_id]\n\n\ndef find_user_by_email(email: str) -> tuple[int, dict] | None:\n    for uid, u in _USERS.items():\n        if u[\"email\"] == email:\n            return uid, u\n    return None\n\n\ndef login(email: str, password: str) -> str:\n    \"\"\"Verify credentials and return an access token.\"\"\"\n    match = find_user_by_email(email)\n    if match is None:\n        raise HTTPException(status_code=401, detail=\"invalid credentials\")\n    uid, user = match\n    if user[\"password\"] != password:\n        raise HTTPException(status_code=401, detail=\"invalid credentials\")\n    from app import notifications\n\n    notifications.capture_contact(uid, user[\"email\"])\n    return auth.create_token(user_id=uid)\n\n\ndef change_email(user_id: int, email: str) -> dict:\n    from app import validators\n\n    if not validators.is_valid_email(email) or not email:\n        raise HTTPException(status_code=400, detail=\"invalid email\")\n    taken = find_user_by_email(email)\n    if taken is not None and taken[0] != user_id:\n        raise HTTPException(status_code=409, detail=\"email in use\")\n    user = get_user(user_id)\n    user[\"email\"] = email\n    return {\"id\": user_id, \"email\": email, \"role\": user[\"role\"]}\n\n\ndef promote_user(target_id: int) -> dict:\n    user = get_user(target_id)\n    user[\"role\"] = \"admin\"\n    return user\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore the seeded users.\"\"\"\n    from app import notifications\n\n    _USERS.clear()\n    _USERS.update(deepcopy(_DEFAULT_USERS))\n    notifications.reset_store()\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_3P8aOaIgNgHEVZR0x2l04299",
+          "function": {
+            "arguments": "{\"path\": \"app/main.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_p8XnBka1sp72zbkIEOFd3863",
+          "function": {
+            "arguments": "{\"path\": \"app/audit.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_3P8aOaIgNgHEVZR0x2l04299",
+      "content": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import (\n    auth,\n    calculator,\n    inventory,\n    orders,\n    reports,\n    users,\n    validators,\n)\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\nclass EmailBody(BaseModel):\n    email: str\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n\n\n@app.patch(\"/users/me/email\")\ndef change_email_endpoint(body: EmailBody, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return users.change_email(user_id, body.email)\n\n\n@app.get(\"/notifications/inbox\")\ndef inbox_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    from app import notifications\n\n    return {\"messages\": notifications.list_messages(user_id)}\n\n\n@app.get(\"/audit/events\")\ndef audit_events_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    from app import audit\n\n    return {\"events\": audit.events_for_order(order_id)}\n\n\n@app.get(\"/reports/sales\")\ndef sales_report_endpoint(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    if users.get_user(user_id).get(\"role\") != \"admin\":\n        raise HTTPException(status_code=403, detail=\"admin required\")\n    return reports.build_snapshot()\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_p8XnBka1sp72zbkIEOFd3863",
+      "content": "\"\"\"Append-only activity stream for storefront operations.\"\"\"\n\nfrom __future__ import annotations\n\nKIND_SALE = \"sale\"\nKIND_CANCEL = \"cancellation\"\n\n\nclass ActivityEvent:\n    def __init__(self, kind: str, actor_id: int, order_id: int, **extra: object) -> None:\n        self.kind = kind\n        self.actor_id = actor_id\n        self.order_id = order_id\n        self.extra = extra\n\n    def as_dict(self) -> dict:\n        payload = {\n            \"kind\": self.kind,\n            \"actor_id\": self.actor_id,\n            \"order_id\": self.order_id,\n        }\n        payload.update(self.extra)\n        return payload\n\n    def is_open_sale(self) -> bool:\n        return self.kind == KIND_SALE\n\n\n_EVENTS: list[ActivityEvent] = []\n\n\ndef append_event(kind: str, actor_id: int, order_id: int, **extra: object) -> dict:\n    event = ActivityEvent(kind, actor_id, order_id, **extra)\n    _EVENTS.append(event)\n    return event.as_dict()\n\n\ndef record_sale(actor_id: int, order_id: int, total: float) -> dict:\n    return append_event(KIND_SALE, actor_id, order_id, total=float(total))\n\n\ndef record_cancellation(actor_id: int, order_id: int) -> dict:\n    return append_event(KIND_CANCEL, actor_id, order_id)\n\n\ndef events_for_order(order_id: int) -> list[dict]:\n    return [event.as_dict() for event in _EVENTS if event.order_id == order_id]\n\n\ndef events_for_actor(actor_id: int) -> list[dict]:\n    return [event.as_dict() for event in _EVENTS if event.actor_id == actor_id]\n\n\ndef latest_for_order(order_id: int) -> dict | None:\n    matches = events_for_order(order_id)\n    if not matches:\n        return None\n    return matches[-1]\n\n\ndef open_sales() -> list[dict]:\n    latest: dict[int, ActivityEvent] = {}\n    for event in _EVENTS:\n        latest[event.order_id] = event\n    return [event.as_dict() for event in latest.values() if event.is_open_sale()]\n\n\ndef count() -> int:\n    return len(_EVENTS)\n\n\ndef reset_store() -> None:\n    _EVENTS.clear()\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_qzv8POR8lEtdsHqdOcbp3310",
+          "function": {
+            "arguments": "{\"query\": \"role\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_xsdNH3rH2asepuHqi3zO1980",
+          "function": {
+            "arguments": "{\"query\": \"require_admin\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_qzv8POR8lEtdsHqdOcbp3310",
+      "content": "app/auth.py:39:    if payload.get(\"role\") != \"admin\":\napp/main.py:62:    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\napp/main.py:70:    return {\"id\": user_id, \"role\": user[\"role\"]}\napp/main.py:141:    if users.get_user(user_id).get(\"role\") != \"admin\":\napp/users.py:10:    1: {\"email\": \"admin@example.com\", \"password\": \"adminpass1\", \"role\": \"admin\"},\napp/users.py:11:    2: {\"email\": \"alice@example.com\", \"password\": \"alicepass1\", \"role\": \"user\"},\napp/users.py:12:    3: {\"email\": \"bob@example.com\", \"password\": \"bobpass1\", \"role\": \"user\"},\napp/users.py:54:    return {\"id\": user_id, \"email\": email, \"role\": user[\"role\"]}\napp/users.py:59:    user[\"role\"] = \"admin\""
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_xsdNH3rH2asepuHqi3zO1980",
+      "content": "app/auth.py:36:def require_admin(token: str) -> int:\napp/main.py:68:    auth.require_admin(token)"
+    },
+    {
+      "role": "assistant",
+      "content": "The root cause is in `auth.require_admin`: it checks a `role` claim embedded in the JWT at login time, so role changes (promotions) don't take effect for already-issued tokens. The `/reports/sales` endpoint already does the right thing by looking up the current role from the user store. I'll make `require_admin` do the same.",
+      "tool_calls": [
+        {
+          "id": "call_00_NUYwXRcPjDO1ChR7hQPS5860",
+          "function": {
+            "arguments": "{\"path\": \"app/auth.py\", \"old_str\": \"def require_admin(token: str) -> int:\\n    \\\"\\\"\\\"Ensure the caller is an admin; return the caller's user id.\\\"\\\"\\\"\\n    payload = decode_token(token)\\n    if payload.get(\\\"role\\\") != \\\"admin\\\":\\n        raise HTTPException(status_code=403, detail=\\\"admin required\\\")\\n    return payload[\\\"user_id\\\"]\", \"new_str\": \"def require_admin(token: str) -> int:\\n    \\\"\\\"\\\"Ensure the caller is currently an admin; return the caller's user id.\\\"\\\"\\\"\\n    user_id = get_current_user_id(token)\\n    from app import users\\n\\n    if users.get_user(user_id).get(\\\"role\\\") != \\\"admin\\\":\\n        raise HTTPException(status_code=403, detail=\\\"admin required\\\")\\n    return user_id\"}",
+            "name": "edit_file"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_NUYwXRcPjDO1ChR7hQPS5860",
+      "content": "Updated app/auth.py (280 -> 329 chars)"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_EtWiaPOAAif7joII6FIV2936",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_EtWiaPOAAif7joII6FIV2936",
+      "content": "exit_code=0\ncommand: pytest tests/test_users_stale_role.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_users_stale_role.py::test_promoted_user_is_not_stuck_on_old_token\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.51s"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_teFVDjyc3ZfI1N9kTbua3962",
+          "function": {
+            "arguments": "{}",
+            "name": "git_diff"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_teFVDjyc3ZfI1N9kTbua3962",
+      "content": "--- status ---\nM app/auth.py\n--- diff ---\ndiff --git a/app/auth.py b/app/auth.py\nindex 9e7ced6..6028503 100644\n--- a/app/auth.py\n+++ b/app/auth.py\n@@ -34,8 +34,10 @@ def get_current_user_id(token: str) -> int:\n \n \n def require_admin(token: str) -> int:\n-    \"\"\"Ensure the caller is an admin; return the caller's user id.\"\"\"\n-    payload = decode_token(token)\n-    if payload.get(\"role\") != \"admin\":\n+    \"\"\"Ensure the caller is currently an admin; return the caller's user id.\"\"\"\n+    user_id = get_current_user_id(token)\n+    from app import users\n+\n+    if users.get_user(user_id).get(\"role\") != \"admin\":\n         raise HTTPException(status_code=403, detail=\"admin required\")\n-    return payload[\"user_id\"]\n+    return user_id"
+    },
+    {
+      "role": "assistant",
+      "content": "Fixed. The problem was that `auth.require_admin` read the `role` from the JWT payload, which is set at login time. When a user was promoted to admin afterward, their existing token still reflected the old (or missing) role, so they kept getting 403 until they logged in again.\n\nThe fix makes `require_admin` resolve the caller's user id from the token and then check the user's current role in the user store, so role changes take effect immediately without requiring a new login. This matches the already-correct behavior in the `/reports/sales` endpoint. Tests pass."
+    }
+  ],
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "sandbox_backend": "docker",
+  "sandbox_image": "issue-pilot-sandbox:py312",
+  "sandbox_network": "none",
+  "sandbox_container_name": "issue-pilot-issue-010-de47a3ee",
+  "sandbox_command_count": 5,
+  "sandbox_timeout_count": 0,
+  "sandbox_truncation_count": 0,
+  "sandbox_denial_count": 0,
+  "sandbox_exec_latency_ms": 5272.71,
+  "sandbox_started": true,
+  "sandbox_cleaned_up": true
+}

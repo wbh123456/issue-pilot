@@ -1,0 +1,180 @@
+{
+  "task_id": "issue-014",
+  "split": "hard",
+  "issue": "The end-of-day sales summary undercounted a line that had more than one unit.",
+  "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+  "expected_files": [
+    "app/reports.py",
+    "app/orders.py",
+    "app/pricing.py"
+  ],
+  "k": 5,
+  "embedder": "HashingEmbedder",
+  "query": "The end-of-day sales summary undercounted a line that had more than one unit.",
+  "query_mode": "issue",
+  "chunk_count": 244,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/ledger.py",
+        "app/shipping.py",
+        "app/settings.py",
+        "app/main.py",
+        "app/webhooks.py"
+      ],
+      "recall_at_k": 0.0,
+      "tokens": [
+        "end",
+        "day",
+        "sales",
+        "summary",
+        "undercounted",
+        "line",
+        "more",
+        "one",
+        "unit"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/pricing.py",
+        "app/calculator.py",
+        "app/main.py",
+        "app/inventory.py",
+        "app/auth.py"
+      ],
+      "recall_at_k": 0.3333333333333333,
+      "chunks": [
+        {
+          "path": "app/pricing.py",
+          "symbol": "quote_price",
+          "type": "function",
+          "start_line": 13,
+          "end_line": 15
+        },
+        {
+          "path": "app/calculator.py",
+          "symbol": "sum_inclusive",
+          "type": "function",
+          "start_line": 6,
+          "end_line": 8
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "calc_sum",
+          "type": "function",
+          "start_line": 107,
+          "end_line": 109
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "get_current_user_id",
+          "type": "function",
+          "start_line": 30,
+          "end_line": 33
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/ledger.py",
+        "app/main.py",
+        "app/auth.py",
+        "app/shipping.py",
+        "app/tax.py"
+      ],
+      "recall_at_k": 0.0,
+      "chunks": [
+        {
+          "path": "app/ledger.py",
+          "symbol": "record_fee",
+          "type": "function",
+          "start_line": 40,
+          "end_line": 43
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "EmailBody",
+          "type": "class",
+          "start_line": 36,
+          "end_line": 37
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "create_token",
+          "type": "function",
+          "start_line": 12,
+          "end_line": 19
+        },
+        {
+          "path": "app/shipping.py",
+          "symbol": "Address",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 17
+        },
+        {
+          "path": "app/tax.py",
+          "symbol": "remote_nexus",
+          "type": "function",
+          "start_line": 30,
+          "end_line": 31
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/ledger.py",
+        "app/auth.py",
+        "app/calculator.py",
+        "app/pricing.py",
+        "app/shipping.py"
+      ],
+      "recall_at_k": 0.3333333333333333,
+      "chunks": [
+        {
+          "path": "app/ledger.py",
+          "symbol": "record_fee",
+          "type": "function",
+          "start_line": 40,
+          "end_line": 43
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "get_current_user_id",
+          "type": "function",
+          "start_line": 30,
+          "end_line": 33
+        },
+        {
+          "path": "app/calculator.py",
+          "symbol": "sum_inclusive",
+          "type": "function",
+          "start_line": 6,
+          "end_line": 8
+        },
+        {
+          "path": "app/pricing.py",
+          "symbol": "quote_price",
+          "type": "function",
+          "start_line": 13,
+          "end_line": 15
+        },
+        {
+          "path": "app/shipping.py",
+          "symbol": "Address",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 17
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,182 @@
+{
+  "task_id": "issue-010",
+  "split": "hard",
+  "issue": "After I granted a teammate staff access she still could not open the staff pages until she signed in again.",
+  "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+  "expected_files": [
+    "app/auth.py",
+    "app/users.py"
+  ],
+  "k": 5,
+  "embedder": "HashingEmbedder",
+  "query": "After I granted a teammate staff access she still could not open the staff pages until she signed in again.",
+  "query_mode": "issue",
+  "chunk_count": 244,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/support.py",
+        "app/users.py",
+        "app/audit.py",
+        "app/auth.py",
+        "app/main.py"
+      ],
+      "recall_at_k": 1.0,
+      "tokens": [
+        "After",
+        "granted",
+        "teammate",
+        "staff",
+        "access",
+        "still",
+        "could",
+        "not",
+        "open",
+        "pages",
+        "signed",
+        "again"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/reports.py",
+        "app/auth.py",
+        "app/payments.py",
+        "app/support.py",
+        "app/pricing.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/reports.py",
+          "symbol": "reports",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 5
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "create_token",
+          "type": "function",
+          "start_line": 12,
+          "end_line": 19
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/support.py",
+          "symbol": "support",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 31
+        },
+        {
+          "path": "app/pricing.py",
+          "symbol": "pricing",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 10
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/payments.py",
+        "app/auth.py",
+        "app/webhooks.py",
+        "app/settings.py",
+        "app/catalog.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "auth",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 9
+        },
+        {
+          "path": "app/webhooks.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 76,
+          "end_line": 79
+        },
+        {
+          "path": "app/settings.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 110,
+          "end_line": 114
+        },
+        {
+          "path": "app/catalog.py",
+          "symbol": "digital_only",
+          "type": "function",
+          "start_line": 65,
+          "end_line": 66
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/payments.py",
+        "app/auth.py",
+        "app/settings.py",
+        "app/reports.py",
+        "app/inventory.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "auth",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 9
+        },
+        {
+          "path": "app/settings.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 110,
+          "end_line": 114
+        },
+        {
+          "path": "app/reports.py",
+          "symbol": "reports",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 5
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        }
+      ]
+    }
+  }
+}

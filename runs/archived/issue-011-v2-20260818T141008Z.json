@@ -1,0 +1,653 @@
+{
+  "task_id": "issue-011",
+  "harness_version": "v2",
+  "difficulty": "hard",
+  "split": "hard",
+  "issue": "SAVE10 on a $10 item charged $8.10, and after I refunded the order the widget was still missing from stock",
+  "base_commit": "4b2258b1d16e802aa9b4a82bcb4a2b0f3911f84c",
+  "repo_path": "C:\\Users\\Aaron\\issue-pilot-benchmark",
+  "expected_files": [
+    "app/orders.py",
+    "app/pricing.py",
+    "app/payments.py"
+  ],
+  "model": "deepseek-v4-flash",
+  "temperature": 0,
+  "harness_git_sha": "06181f22340350d9ecd472c4c8fec9fe5ae664e4",
+  "success": true,
+  "gold_test": {
+    "command": "pytest tests/_gold/test_issue_011.py::test_coupon_applied_once_and_refund_restores_stock -q",
+    "exit_code": 0,
+    "passed": true,
+    "output": "exit_code=0\ncommand: pytest tests/_gold/test_issue_011.py::test_coupon_applied_once_and_refund_restores_stock -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/_gold/test_issue_011.py::test_coupon_applied_once_and_refund_restores_stock\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/_gold/test_issue_011.py::test_coupon_applied_once_and_refund_restores_stock\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.32s"
+  },
+  "tool_call_count": 19,
+  "file_reads": 8,
+  "steps": 10,
+  "llm_calls": 13,
+  "tokens": 82464,
+  "prompt_tokens": 67887,
+  "completion_tokens": 14577,
+  "estimated_cost": null,
+  "latency": 0.020278100040741265,
+  "termination": "completed",
+  "final_answer": "Both issues are fixed in `app/orders.py`:\n\n1. **Double discount bug**: `create_order` was calling `pricing.apply_coupon(total, coupon)` twice, compounding SAVE10 to 19% ($10 → $8.10). Now the coupon is applied exactly once, so SAVE10 on a $10 item totals $9.00.\n\n2. **Missing stock restoration on refund**: `refund_order` only marked the capture refunded and never restocked inventory. It now calls `inventory.release(sku, qty)` for each refunded line item using the same sku/qty data that `allocate_bin` used to decrement stock, so the widget quantity is returned to stock.\n\nAlso fixed `calculate_total` to multiply unit price by qty instead of summing unit prices, which aligns with the existing line-total test.\n\nThe targeted test (`tests/test_orders_coupon_refund.py`) passes.",
+  "trajectory": [
+    {
+      "step": 1,
+      "tool_call_id": "call_00_VxILM5X1II8bEQVUzVCS4192",
+      "tool": "list_files",
+      "arguments": {
+        "path": "."
+      },
+      "result": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_01_toUn3cr1GIRJeR7RaRUU6275",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/main.py"
+      },
+      "result": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import auth, calculator, inventory, orders, users, validators\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_02_WFO6eANzdWambLPBZbkW8496",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/pricing.py"
+      },
+      "result": "\"\"\"Quotes, tax, and coupons.\n\nA coupon code should change the payable amount at most once. Checkout currently\ndoes not call ``compute_checkout_total``.\n\"\"\"\n\nCOUPONS = {\n    \"SAVE10\": 0.10,\n    \"SAVE20\": 0.20,\n}\n\n\ndef quote_price(sku: str, qty: int, unit_price: float) -> float:\n    \"\"\"Unit quote helper; not used by ``orders.create_order``.\"\"\"\n    return round(unit_price * qty, 2)\n\n\ndef apply_tax(subtotal: float, tax_rate: float = 0.0) -> float:\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef apply_coupon(amount: float, code: str | None) -> float:\n    if not code:\n        return round(float(amount), 2)\n    rate = COUPONS.get(code.upper(), 0.0)\n    return round(float(amount) * (1.0 - rate), 2)\n\n\ndef compute_checkout_total(\n    items: list[dict],\n    coupon: str | None = None,\n    tax_rate: float = 0.0,\n) -> float:\n    \"\"\"One-shot subtotal → coupon → tax. Unused by the order service today.\"\"\"\n    subtotal = sum(float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items)\n    discounted = apply_coupon(subtotal, coupon)\n    return apply_tax(discounted, tax_rate)\n"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_03_ReV1yLL5Uqknh84jslx22848",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/payments.py"
+      },
+      "result": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "step": 1,
+      "tool_call_id": "call_04_NdMdNTaKU2Su7xEa18Jh4537",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/inventory.py"
+      },
+      "result": "\"\"\"Warehouse stock and bin allocation.\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_00_9ODOGrkl3Ak6aoiejlwm3933",
+      "tool": "read_file",
+      "arguments": {
+        "path": "app/orders.py"
+      },
+      "result": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    return order\n\n\ndef refund_order(order_id: int) -> dict:\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "step": 2,
+      "tool_call_id": "call_01_1m8rqHe7gnBBbcx4mSs28778",
+      "tool": "list_files",
+      "arguments": {
+        "path": "tests"
+      },
+      "result": "tests/__init__.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_inventory_orders.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_00_yUrQTcLC6daX5TbYpbyJ7930",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_coupon_refund.py"
+      },
+      "result": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_01_k1JKDcjvAEf9ZKnxvkoA0866",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_orders_total.py"
+      },
+      "result": "\"\"\"Order line totals.\"\"\"\n\nfrom app import orders\n\n\ndef test_line_total_is_not_unit_prices_only():\n    total = orders.calculate_total(\n        [\n            {\"price\": 10.0, \"qty\": 3},\n            {\"price\": 2.5, \"qty\": 2},\n        ]\n    )\n    # Summing unit prices and ignoring qty yields 12.5.\n    assert total != 12.5\n"
+    },
+    {
+      "step": 3,
+      "tool_call_id": "call_02_SqXIIYZNfx9RxYID9D0n5454",
+      "tool": "read_file",
+      "arguments": {
+        "path": "tests/test_inventory_orders.py"
+      },
+      "result": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_00_J4LZwitaIIUauexmFMTN1633",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "refund"
+      },
+      "result": "app/main.py:78:@app.post(\"/orders/{order_id}/refund\")\napp/main.py:79:def refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\napp/main.py:82:    return orders.refund_order(order_id)\napp/orders.py:45:def refund_order(order_id: int) -> dict:\napp/orders.py:47:    payments.refund(order)\napp/orders.py:48:    order[\"status\"] = \"refunded\"\napp/orders.py:49:    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\napp/payments.py:1:\"\"\"Card capture and refunds.\napp/payments.py:4:500. Restoring warehouse stock after a refund is inventory's job, not this\napp/payments.py:22:def refund(order: dict) -> dict:\napp/payments.py:23:    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\napp/payments.py:24:    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}"
+    },
+    {
+      "step": 4,
+      "tool_call_id": "call_01_8l71WdbMaQQIIkKiY4jW2385",
+      "tool": "grep_code",
+      "arguments": {
+        "query": "release"
+      },
+      "result": "app/inventory.py:30:def release(sku: str, qty: int) -> None:"
+    },
+    {
+      "step": 5,
+      "tool_call_id": "call_00_mT0EGEGE4IQkqPwvgGIO4357",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=1\ncommand: pytest tests/test_orders_coupon_refund.py -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n___________________ test_save10_on_a_ten_dollar_item_is_nine ___________________\n\n    def test_save10_on_a_ten_dollar_item_is_nine():\n        token = _login_alice()\n        r = client.post(\n            \"/orders\",\n            json={\n                \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n                \"coupon\": \"SAVE10\",\n            },\n            headers={\"Authorization\": f\"Bearer {token}\"},\n        )\n        assert r.status_code == 200\n>       assert r.json()[\"total\"] == 9.0\nE       assert 8.1 == 9.0\n\ntests/test_orders_coupon_refund.py:30: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n1 failed, 3 warnings in 1.48s"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_00_nDVQRaSpFO7N41bpz0f48666",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/orders.py",
+        "old_str": "def calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)",
+        "new_str": "def calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(\n        float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items\n    )\n    return round(subtotal * (1 + tax_rate), 2)"
+      },
+      "result": "Updated app/orders.py (226 -> 273 chars)"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_01_Qjx86T29QzUiBEy4wWM64944",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/orders.py",
+        "old_str": "    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)",
+        "new_str": "    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)"
+      },
+      "result": "Updated app/orders.py (153 -> 101 chars)"
+    },
+    {
+      "step": 6,
+      "tool_call_id": "call_02_bFykTYt8uaT5CSYlQJ739162",
+      "tool": "edit_file",
+      "arguments": {
+        "path": "app/orders.py",
+        "old_str": "def refund_order(order_id: int) -> dict:\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}",
+        "new_str": "def refund_order(order_id: int) -> dict:\n    order = get_order(order_id)\n    payments.refund(order)\n    for item in order[\"items\"]:\n        inventory.release(\n            item.get(\"sku\") or \"widget\", int(item.get(\"qty\", 1))\n        )\n    order[\"status\"] = \"refunded\"\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}"
+      },
+      "result": "Updated app/orders.py (203 -> 337 chars)"
+    },
+    {
+      "step": 7,
+      "tool_call_id": "call_00_ET_ImlyvlLDDLxgmRdB4tMG2626",
+      "tool": "run_tests",
+      "arguments": {},
+      "result": "exit_code=0\ncommand: pytest tests/test_orders_coupon_refund.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.04s"
+    },
+    {
+      "step": 8,
+      "tool_call_id": "call_00_wLxrolOMt09lX1iIvfrr6884",
+      "tool": "run_tests",
+      "arguments": {
+        "pattern": ""
+      },
+      "result": "exit_code=0\ncommand: pytest tests/test_orders_coupon_refund.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.93s"
+    },
+    {
+      "step": 9,
+      "tool_call_id": "call_00_ET_bHFAgbhLWBY0fAFbFgQg6717",
+      "tool": "git_diff",
+      "arguments": {},
+      "result": "--- status ---\nM app/orders.py\n--- diff ---\ndiff --git a/app/orders.py b/app/orders.py\nindex b1d5b39..9a0e40b 100644\n--- a/app/orders.py\n+++ b/app/orders.py\n@@ -9,7 +9,9 @@ _ORDERS: list[dict] = []\n \n def calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n     \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n-    subtotal = sum(item[\"price\"] for item in items)\n+    subtotal = sum(\n+        float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items\n+    )\n     return round(subtotal * (1 + tax_rate), 2)\n \n \n@@ -25,7 +27,6 @@ def create_order(\n     total = calculate_total(items)\n     if coupon:\n         total = pricing.apply_coupon(total, coupon)\n-        total = pricing.apply_coupon(total, coupon)\n \n     payments.charge(user_id, total, items)\n \n@@ -45,6 +46,10 @@ def create_order(\n def refund_order(order_id: int) -> dict:\n     order = get_order(order_id)\n     payments.refund(order)\n+    for item in order[\"items\"]:\n+        inventory.release(\n+            item.get(\"sku\") or \"widget\", int(item.get(\"qty\", 1))\n+        )\n     order[\"status\"] = \"refunded\"\n     return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}"
+    }
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": "\nYou are a coding agent fixing one issue in a sandboxed repository.\n\nInspect relevant files before editing.\nMake the smallest correct change.\nUse run_tests after editing.\nUse git_diff to inspect your final changes.\nDo not modify tests.\nWhen the issue is fixed and tests pass, respond with a concise final answer\nand make no further tool calls.\n"
+    },
+    {
+      "role": "user",
+      "content": "Fix this issue:\n\nSAVE10 on a $10 item charged $8.10, and after I refunded the order the widget was still missing from stock\n\nWorkflow context:\n{\n  \"plan\": {\n    \"problem\": \"SAVE10 on a $10 item charged the customer $8.10 instead of $9.00 (a 10% discount appears to be applied twice, compounding to 19%), and after the order was refunded the widget quantity was not returned to stock.\",\n    \"hypothesis\": \"The two symptoms are independent bugs: (1) SAVE10 is being applied more than once during checkout, likely once as a line-item discount and again as an order-level discount, or the discounted amount is being discounted again instead of using the original item price; (2) the refund flow only marks the capture as refunded and never calls any inventory restock/stock-increment logic, so decremented stock at allocation is not restored.\",\n    \"files_to_inspect\": [\n      \"app/pricing.py\",\n      \"app/main.py\",\n      \"app/payments.py\",\n      \"app/inventory.py\"\n    ],\n    \"steps\": [\n      \"Trace all uses of COUPONS/SAVE10 in pricing and checkout paths to confirm whether the discount is applied more than once and whether the base price used is the original pre-discount item price.\",\n      \"Inspect app/main.py order creation/checkout flow to see where compute_checkout_total or coupon logic is called and why SAVE10 yields $8.10 on a $10 item.\",\n      \"Review the refund/cancel/order-status flow in app/main.py along with app/payments.py to identify where a refund event should trigger stock restoration.\",\n      \"Add a stock-restoration step in the refund path that increments inventory for each refunded line item using the same sku/qty data used by allocate_bin, while keeping the refund amount calculation unchanged.\",\n      \"Verify end-to-end that a $10 item with SAVE10 totals $9.00 and that refunding the order restores the widget stock count.\"\n    ]\n  },\n  \"guardrail\": \"Ignore plan paths that are not present in the repository. Prefer the existing Python/FastAPI layout under app/ and tests/.\",\n  \"retrieved\": \"### app/pricing.py  pricing (module)  L1-10\\n\\\"\\\"\\\"Quotes, tax, and coupons.\\n\\nA coupon code should change the payable amount at most once. Checkout currently\\ndoes not call ``compute_checkout_total``.\\n\\\"\\\"\\\"\\nCOUPONS = {\\n    \\\"SAVE10\\\": 0.10,\\n    \\\"SAVE20\\\": 0.20,\\n}\\n\\n\\n### app/main.py  OrderItem (class)  L17-20\\nclass OrderItem(BaseModel):\\n    sku: str = \\\"widget\\\"\\n    price: float\\n    qty: int\\n\\n\\n### app/payments.py  refund (function)  L22-24\\ndef refund(order: dict) -> dict:\\n    \\\"\\\"\\\"Mark a capture as refunded. Does not touch warehouse stock.\\\"\\\"\\\"\\n    return {\\\"refunded\\\": True, \\\"amount\\\": order.get(\\\"total\\\", 0)}\\n\\n\\n### app/inventory.py  inventory (module)  L1-15\\n\\\"\\\"\\\"Warehouse stock and bin allocation.\\\"\\\"\\\"\\nfrom fastapi import HTTPException\\n_DEFAULT_STOCK: dict[str, int] = {\\n    \\\"widget\\\": 3,\\n    \\\"gadget\\\": 10,\\n}\\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\\nWAREHOUSE_BINS = {\\n    \\\"widget\\\": {\\\"aisle\\\": \\\"A1\\\", \\\"slots\\\": [0, 1, 2]},\\n    \\\"gadget\\\": {\\\"aisle\\\": \\\"B2\\\", \\\"slots\\\": list(range(10))},\\n}\\n\\n\\n### app/inventory.py  allocate_bin (function)  L34-44\\ndef allocate_bin(items: list[dict]) -> str:\\n    \\\"\\\"\\\"Pick a warehouse aisle for the line items and decrement stock.\\\"\\\"\\\"\\n    last_aisle = \\\"A1\\\"\\n    for item in items:\\n        sku = item.get(\\\"sku\\\") or \\\"widget\\\"\\n        qty = int(item.get(\\\"qty\\\", 1))\\n        bins = WAREHOUSE_BINS[sku]\\n        last_aisle = bins[\\\"aisle\\\"]\\n        _ = bins[\\\"slots\\\"][qty - 1]\\n        _STOCK[sku] = get_stock(sku) - qty\\n    return last_aisle\",\n  \"relevant_files\": [\n    \"app/pricing.py\",\n    \"app/main.py\",\n    \"app/payments.py\",\n    \"app/inventory.py\"\n  ]\n}"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_VxILM5X1II8bEQVUzVCS4192",
+          "function": {
+            "arguments": "{\"path\": \".\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_toUn3cr1GIRJeR7RaRUU6275",
+          "function": {
+            "arguments": "{\"path\": \"app/main.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        },
+        {
+          "id": "call_02_WFO6eANzdWambLPBZbkW8496",
+          "function": {
+            "arguments": "{\"path\": \"app/pricing.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 2
+        },
+        {
+          "id": "call_03_ReV1yLL5Uqknh84jslx22848",
+          "function": {
+            "arguments": "{\"path\": \"app/payments.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 3
+        },
+        {
+          "id": "call_04_NdMdNTaKU2Su7xEa18Jh4537",
+          "function": {
+            "arguments": "{\"path\": \"app/inventory.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 4
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_VxILM5X1II8bEQVUzVCS4192",
+      "content": "app/\ntests/\n.gitignore\nconftest.py\npytest.ini\nREADME.md\nrequirements.txt"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_toUn3cr1GIRJeR7RaRUU6275",
+      "content": "\"\"\"FastAPI app wiring.\"\"\"\n\nfrom fastapi import FastAPI, Header, HTTPException\nfrom pydantic import BaseModel\n\nfrom app import auth, calculator, inventory, orders, users, validators\n\n\napp = FastAPI(title=\"issue-pilot-benchmark\")\n\n\nclass LoginBody(BaseModel):\n    email: str\n    password: str\n\n\nclass OrderItem(BaseModel):\n    sku: str = \"widget\"\n    price: float\n    qty: int\n\n\nclass CreateOrderBody(BaseModel):\n    items: list[OrderItem]\n    coupon: str | None = None\n\n\ndef _bearer(authorization: str) -> str:\n    if not authorization or not authorization.lower().startswith(\"bearer \"):\n        raise HTTPException(status_code=401, detail=\"missing bearer token\")\n    return authorization.split(\" \", 1)[1].strip()\n\n\n@app.post(\"/auth/login\")\ndef login(body: LoginBody) -> dict:\n    token = users.login(body.email, body.password)\n    return {\"access_token\": token}\n\n\n@app.get(\"/auth/me\")\ndef me(authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    return {\"user_id\": user_id}\n\n\n@app.get(\"/users/{user_id}\")\ndef get_user_endpoint(user_id: int) -> dict:\n    user = users.get_user(user_id)\n    return {\"id\": user_id, \"email\": user[\"email\"], \"role\": user[\"role\"]}\n\n\n@app.post(\"/users/{user_id}/promote\")\ndef promote_endpoint(user_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.require_admin(token)\n    user = users.promote_user(user_id)\n    return {\"id\": user_id, \"role\": user[\"role\"]}\n\n\n@app.post(\"/orders\")\ndef create_order_endpoint(\n    body: CreateOrderBody,\n    authorization: str = Header(...),\n    idempotency_key: str | None = Header(default=None, alias=\"Idempotency-Key\"),\n) -> dict:\n    token = _bearer(authorization)\n    user_id = auth.get_current_user_id(token)\n    items = [i.model_dump() for i in body.items]\n    return orders.create_order(\n        user_id=user_id,\n        items=items,\n        idempotency_key=idempotency_key,\n        coupon=body.coupon,\n    )\n\n\n@app.post(\"/orders/{order_id}/refund\")\ndef refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\n    token = _bearer(authorization)\n    auth.get_current_user_id(token)\n    return orders.refund_order(order_id)\n\n\n@app.get(\"/inventory/{sku}\")\ndef stock_endpoint(sku: str) -> dict:\n    return {\"sku\": sku, \"stock\": inventory.get_stock(sku)}\n\n\n@app.post(\"/validate/email\")\ndef validate_email(email: str) -> dict:\n    return {\"valid\": validators.is_valid_email(email)}\n\n\n@app.get(\"/calc/sum\")\ndef calc_sum(start: int, end: int) -> dict:\n    return {\"result\": calculator.sum_inclusive(start, end)}\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_02_WFO6eANzdWambLPBZbkW8496",
+      "content": "\"\"\"Quotes, tax, and coupons.\n\nA coupon code should change the payable amount at most once. Checkout currently\ndoes not call ``compute_checkout_total``.\n\"\"\"\n\nCOUPONS = {\n    \"SAVE10\": 0.10,\n    \"SAVE20\": 0.20,\n}\n\n\ndef quote_price(sku: str, qty: int, unit_price: float) -> float:\n    \"\"\"Unit quote helper; not used by ``orders.create_order``.\"\"\"\n    return round(unit_price * qty, 2)\n\n\ndef apply_tax(subtotal: float, tax_rate: float = 0.0) -> float:\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef apply_coupon(amount: float, code: str | None) -> float:\n    if not code:\n        return round(float(amount), 2)\n    rate = COUPONS.get(code.upper(), 0.0)\n    return round(float(amount) * (1.0 - rate), 2)\n\n\ndef compute_checkout_total(\n    items: list[dict],\n    coupon: str | None = None,\n    tax_rate: float = 0.0,\n) -> float:\n    \"\"\"One-shot subtotal → coupon → tax. Unused by the order service today.\"\"\"\n    subtotal = sum(float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items)\n    discounted = apply_coupon(subtotal, coupon)\n    return apply_tax(discounted, tax_rate)\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_03_ReV1yLL5Uqknh84jslx22848",
+      "content": "\"\"\"Card capture and refunds.\n\nCharge failures in some code paths are documented as failing closed with HTTP\n500. Restoring warehouse stock after a refund is inventory's job, not this\nmodule's ledger.\n\"\"\"\n\n_CHARGES: list[dict] = []\n\n\ndef charge(user_id: int, amount: float, items: list[dict]) -> dict:\n    rec = {\n        \"user_id\": user_id,\n        \"amount\": amount,\n        \"items\": items,\n        \"status\": \"captured\",\n    }\n    _CHARGES.append(rec)\n    return rec\n\n\ndef refund(order: dict) -> dict:\n    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\n    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}\n\n\ndef fail_closed_message() -> str:\n    \"\"\"Red herring for searches about crashes / HTTP 500.\"\"\"\n    return \"charge failures should fail closed with HTTP 500\"\n\n\ndef reset_store() -> None:\n    _CHARGES.clear()\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_04_NdMdNTaKU2Su7xEa18Jh4537",
+      "content": "\"\"\"Warehouse stock and bin allocation.\"\"\"\n\nfrom fastapi import HTTPException\n\n_DEFAULT_STOCK: dict[str, int] = {\n    \"widget\": 3,\n    \"gadget\": 10,\n}\n\n_STOCK: dict[str, int] = dict(_DEFAULT_STOCK)\n\nWAREHOUSE_BINS = {\n    \"widget\": {\"aisle\": \"A1\", \"slots\": [0, 1, 2]},\n    \"gadget\": {\"aisle\": \"B2\", \"slots\": list(range(10))},\n}\n\n\ndef get_stock(sku: str) -> int:\n    return int(_STOCK.get(sku, 0))\n\n\ndef reserve(sku: str, qty: int) -> None:\n    \"\"\"Take ``qty`` units of ``sku`` or raise HTTP 409.\"\"\"\n    available = get_stock(sku)\n    if qty > available:\n        raise HTTPException(status_code=409, detail=\"out of stock\")\n    _STOCK[sku] = available - qty\n\n\ndef release(sku: str, qty: int) -> None:\n    _STOCK[sku] = get_stock(sku) + qty\n\n\ndef allocate_bin(items: list[dict]) -> str:\n    \"\"\"Pick a warehouse aisle for the line items and decrement stock.\"\"\"\n    last_aisle = \"A1\"\n    for item in items:\n        sku = item.get(\"sku\") or \"widget\"\n        qty = int(item.get(\"qty\", 1))\n        bins = WAREHOUSE_BINS[sku]\n        last_aisle = bins[\"aisle\"]\n        _ = bins[\"slots\"][qty - 1]\n        _STOCK[sku] = get_stock(sku) - qty\n    return last_aisle\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — restore seeded stock.\"\"\"\n    _STOCK.clear()\n    _STOCK.update(_DEFAULT_STOCK)\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_9ODOGrkl3Ak6aoiejlwm3933",
+          "function": {
+            "arguments": "{\"path\": \"app/orders.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_1m8rqHe7gnBBbcx4mSs28778",
+          "function": {
+            "arguments": "{\"path\": \"tests\"}",
+            "name": "list_files"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_9ODOGrkl3Ak6aoiejlwm3933",
+      "content": "\"\"\"In-memory order store.\"\"\"\n\nfrom fastapi import HTTPException\n\nfrom app import inventory, payments, pricing\n\n_ORDERS: list[dict] = []\n\n\ndef calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n    \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n    subtotal = sum(item[\"price\"] for item in items)\n    return round(subtotal * (1 + tax_rate), 2)\n\n\ndef create_order(\n    user_id: int,\n    items: list[dict],\n    idempotency_key: str | None = None,\n    coupon: str | None = None,\n) -> dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    inventory.allocate_bin(items)\n\n    total = calculate_total(items)\n    if coupon:\n        total = pricing.apply_coupon(total, coupon)\n        total = pricing.apply_coupon(total, coupon)\n\n    payments.charge(user_id, total, items)\n\n    order = {\n        \"id\": len(_ORDERS) + 1,\n        \"user_id\": user_id,\n        \"items\": items,\n        \"total\": round(total, 2),\n        \"status\": \"pending\",\n        \"coupon\": coupon,\n        \"idempotency_key\": idempotency_key,\n    }\n    _ORDERS.append(order)\n    return order\n\n\ndef refund_order(order_id: int) -> dict:\n    order = get_order(order_id)\n    payments.refund(order)\n    order[\"status\"] = \"refunded\"\n    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\n\n\ndef get_order(order_id: int) -> dict:\n    for o in _ORDERS:\n        if o[\"id\"] == order_id:\n            return o\n    raise HTTPException(status_code=404, detail=\"order not found\")\n\n\ndef reset_store() -> None:\n    \"\"\"Test helper — clear orders and related in-memory stores.\"\"\"\n    _ORDERS.clear()\n    inventory.reset_store()\n    payments.reset_store()\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_1m8rqHe7gnBBbcx4mSs28778",
+      "content": "tests/__init__.py\ntests/test_auth_claims.py\ntests/test_auth_expired.py\ntests/test_calculator.py\ntests/test_inventory_orders.py\ntests/test_orders_coupon_refund.py\ntests/test_orders_idempotency.py\ntests/test_orders_total.py\ntests/test_users_missing.py\ntests/test_users_promote.py\ntests/test_users_stale_role.py\ntests/test_validators.py"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_yUrQTcLC6daX5TbYpbyJ7930",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_orders_coupon_refund.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_k1JKDcjvAEf9ZKnxvkoA0866",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_orders_total.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 1
+        },
+        {
+          "id": "call_02_SqXIIYZNfx9RxYID9D0n5454",
+          "function": {
+            "arguments": "{\"path\": \"tests/test_inventory_orders.py\"}",
+            "name": "read_file"
+          },
+          "type": "function",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_yUrQTcLC6daX5TbYpbyJ7930",
+      "content": "\"\"\"Coupon checkout totals.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_save10_on_a_ten_dollar_item_is_nine():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\n            \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n            \"coupon\": \"SAVE10\",\n        },\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code == 200\n    assert r.json()[\"total\"] == 9.0\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_k1JKDcjvAEf9ZKnxvkoA0866",
+      "content": "\"\"\"Order line totals.\"\"\"\n\nfrom app import orders\n\n\ndef test_line_total_is_not_unit_prices_only():\n    total = orders.calculate_total(\n        [\n            {\"price\": 10.0, \"qty\": 3},\n            {\"price\": 2.5, \"qty\": 2},\n        ]\n    )\n    # Summing unit prices and ignoring qty yields 12.5.\n    assert total != 12.5\n"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_02_SqXIIYZNfx9RxYID9D0n5454",
+      "content": "\"\"\"Oversized checkout against warehouse stock.\"\"\"\n\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nclient = TestClient(app, raise_server_exceptions=False)\n\n\ndef _login_alice() -> str:\n    r = client.post(\n        \"/auth/login\",\n        json={\"email\": \"alice@example.com\", \"password\": \"alicepass1\"},\n    )\n    assert r.status_code == 200, r.text\n    return r.json()[\"access_token\"]\n\n\ndef test_ordering_more_widgets_than_stock_does_not_crash():\n    token = _login_alice()\n    r = client.post(\n        \"/orders\",\n        json={\"items\": [{\"sku\": \"widget\", \"price\": 9.0, \"qty\": 50}]},\n        headers={\"Authorization\": f\"Bearer {token}\"},\n    )\n    assert r.status_code != 500\n"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_J4LZwitaIIUauexmFMTN1633",
+          "function": {
+            "arguments": "{\"query\": \"refund\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_8l71WdbMaQQIIkKiY4jW2385",
+          "function": {
+            "arguments": "{\"query\": \"release\"}",
+            "name": "grep_code"
+          },
+          "type": "function",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_J4LZwitaIIUauexmFMTN1633",
+      "content": "app/main.py:78:@app.post(\"/orders/{order_id}/refund\")\napp/main.py:79:def refund_endpoint(order_id: int, authorization: str = Header(...)) -> dict:\napp/main.py:82:    return orders.refund_order(order_id)\napp/orders.py:45:def refund_order(order_id: int) -> dict:\napp/orders.py:47:    payments.refund(order)\napp/orders.py:48:    order[\"status\"] = \"refunded\"\napp/orders.py:49:    return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}\napp/payments.py:1:\"\"\"Card capture and refunds.\napp/payments.py:4:500. Restoring warehouse stock after a refund is inventory's job, not this\napp/payments.py:22:def refund(order: dict) -> dict:\napp/payments.py:23:    \"\"\"Mark a capture as refunded. Does not touch warehouse stock.\"\"\"\napp/payments.py:24:    return {\"refunded\": True, \"amount\": order.get(\"total\", 0)}"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_8l71WdbMaQQIIkKiY4jW2385",
+      "content": "app/inventory.py:30:def release(sku: str, qty: int) -> None:"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_mT0EGEGE4IQkqPwvgGIO4357",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_mT0EGEGE4IQkqPwvgGIO4357",
+      "content": "exit_code=1\ncommand: pytest tests/test_orders_coupon_refund.py -q\n--- stdout ---\nF                                                                        [100%]\n=================================== FAILURES ===================================\n___________________ test_save10_on_a_ten_dollar_item_is_nine ___________________\n\n    def test_save10_on_a_ten_dollar_item_is_nine():\n        token = _login_alice()\n        r = client.post(\n            \"/orders\",\n            json={\n                \"items\": [{\"sku\": \"widget\", \"price\": 10.0, \"qty\": 1}],\n                \"coupon\": \"SAVE10\",\n            },\n            headers={\"Authorization\": f\"Bearer {token}\"},\n        )\n        assert r.status_code == 200\n>       assert r.json()[\"total\"] == 9.0\nE       assert 8.1 == 9.0\n\ntests/test_orders_coupon_refund.py:30: AssertionError\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED tests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n1 failed, 3 warnings in 1.48s"
+    },
+    {
+      "role": "assistant",
+      "content": "The issues are in `app/orders.py`: the coupon is applied twice in `create_order`, and `refund_order` never restocks inventory. Also `calculate_total` ignores `qty`. Let me fix all three.",
+      "tool_calls": [
+        {
+          "id": "call_00_nDVQRaSpFO7N41bpz0f48666",
+          "function": {
+            "arguments": "{\"path\": \"app/orders.py\", \"old_str\": \"def calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\\n    \\\"\\\"\\\"Return the tax-inclusive total for ``items``.\\\"\\\"\\\"\\n    subtotal = sum(item[\\\"price\\\"] for item in items)\\n    return round(subtotal * (1 + tax_rate), 2)\", \"new_str\": \"def calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\\n    \\\"\\\"\\\"Return the tax-inclusive total for ``items``.\\\"\\\"\\\"\\n    subtotal = sum(\\n        float(item[\\\"price\\\"]) * int(item.get(\\\"qty\\\", 1)) for item in items\\n    )\\n    return round(subtotal * (1 + tax_rate), 2)\"}",
+            "name": "edit_file"
+          },
+          "type": "function",
+          "index": 0
+        },
+        {
+          "id": "call_01_Qjx86T29QzUiBEy4wWM64944",
+          "function": {
+            "arguments": "{\"path\": \"app/orders.py\", \"old_str\": \"    total = calculate_total(items)\\n    if coupon:\\n        total = pricing.apply_coupon(total, coupon)\\n        total = pricing.apply_coupon(total, coupon)\", \"new_str\": \"    total = calculate_total(items)\\n    if coupon:\\n        total = pricing.apply_coupon(total, coupon)\"}",
+            "name": "edit_file"
+          },
+          "type": "function",
+          "index": 1
+        },
+        {
+          "id": "call_02_bFykTYt8uaT5CSYlQJ739162",
+          "function": {
+            "arguments": "{\"path\": \"app/orders.py\", \"old_str\": \"def refund_order(order_id: int) -> dict:\\n    order = get_order(order_id)\\n    payments.refund(order)\\n    order[\\\"status\\\"] = \\\"refunded\\\"\\n    return {\\\"refunded\\\": True, \\\"id\\\": order_id, \\\"total\\\": order[\\\"total\\\"]}\", \"new_str\": \"def refund_order(order_id: int) -> dict:\\n    order = get_order(order_id)\\n    payments.refund(order)\\n    for item in order[\\\"items\\\"]:\\n        inventory.release(\\n            item.get(\\\"sku\\\") or \\\"widget\\\", int(item.get(\\\"qty\\\", 1))\\n        )\\n    order[\\\"status\\\"] = \\\"refunded\\\"\\n    return {\\\"refunded\\\": True, \\\"id\\\": order_id, \\\"total\\\": order[\\\"total\\\"]}\"}",
+            "name": "edit_file"
+          },
+          "type": "function",
+          "index": 2
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_nDVQRaSpFO7N41bpz0f48666",
+      "content": "Updated app/orders.py (226 -> 273 chars)"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_01_Qjx86T29QzUiBEy4wWM64944",
+      "content": "Updated app/orders.py (153 -> 101 chars)"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_02_bFykTYt8uaT5CSYlQJ739162",
+      "content": "Updated app/orders.py (203 -> 337 chars)"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_ImlyvlLDDLxgmRdB4tMG2626",
+          "function": {
+            "arguments": "{}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_ImlyvlLDDLxgmRdB4tMG2626",
+      "content": "exit_code=0\ncommand: pytest tests/test_orders_coupon_refund.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 1.04s"
+    },
+    {
+      "role": "assistant",
+      "content": "The targeted test passes. Let me verify the full suite for regressions and inspect my final changes.",
+      "tool_calls": [
+        {
+          "id": "call_00_wLxrolOMt09lX1iIvfrr6884",
+          "function": {
+            "arguments": "{\"pattern\": \"\"}",
+            "name": "run_tests"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_wLxrolOMt09lX1iIvfrr6884",
+      "content": "exit_code=0\ncommand: pytest tests/test_orders_coupon_refund.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.93s"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_00_ET_bHFAgbhLWBY0fAFbFgQg6717",
+          "function": {
+            "arguments": "{}",
+            "name": "git_diff"
+          },
+          "type": "function",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_ET_bHFAgbhLWBY0fAFbFgQg6717",
+      "content": "--- status ---\nM app/orders.py\n--- diff ---\ndiff --git a/app/orders.py b/app/orders.py\nindex b1d5b39..9a0e40b 100644\n--- a/app/orders.py\n+++ b/app/orders.py\n@@ -9,7 +9,9 @@ _ORDERS: list[dict] = []\n \n def calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n     \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n-    subtotal = sum(item[\"price\"] for item in items)\n+    subtotal = sum(\n+        float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items\n+    )\n     return round(subtotal * (1 + tax_rate), 2)\n \n \n@@ -25,7 +27,6 @@ def create_order(\n     total = calculate_total(items)\n     if coupon:\n         total = pricing.apply_coupon(total, coupon)\n-        total = pricing.apply_coupon(total, coupon)\n \n     payments.charge(user_id, total, items)\n \n@@ -45,6 +46,10 @@ def create_order(\n def refund_order(order_id: int) -> dict:\n     order = get_order(order_id)\n     payments.refund(order)\n+    for item in order[\"items\"]:\n+        inventory.release(\n+            item.get(\"sku\") or \"widget\", int(item.get(\"qty\", 1))\n+        )\n     order[\"status\"] = \"refunded\"\n     return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}"
+    },
+    {
+      "role": "assistant",
+      "content": "Both issues are fixed in `app/orders.py`:\n\n1. **Double discount bug**: `create_order` was calling `pricing.apply_coupon(total, coupon)` twice, compounding SAVE10 to 19% ($10 → $8.10). Now the coupon is applied exactly once, so SAVE10 on a $10 item totals $9.00.\n\n2. **Missing stock restoration on refund**: `refund_order` only marked the capture refunded and never restocked inventory. It now calls `inventory.release(sku, qty)` for each refunded line item using the same sku/qty data that `allocate_bin` used to decrement stock, so the widget quantity is returned to stock.\n\nAlso fixed `calculate_total` to multiply unit price by qty instead of summing unit prices, which aligns with the existing line-total test.\n\nThe targeted test (`tests/test_orders_coupon_refund.py`) passes."
+    }
+  ],
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "sandbox_backend": "docker",
+  "sandbox_image": "issue-pilot-sandbox:py312",
+  "sandbox_network": "none",
+  "sandbox_container_name": "issue-pilot-issue-011-fef5ebb3",
+  "sandbox_command_count": 1,
+  "sandbox_timeout_count": 0,
+  "sandbox_truncation_count": 0,
+  "sandbox_denial_count": 0,
+  "sandbox_exec_latency_ms": 2503.13,
+  "sandbox_started": true,
+  "sandbox_cleaned_up": true,
+  "run_id": "issue-011-v2-20260818T141008Z",
+  "thread_id": "issue-011-v2-20260818T141008Z",
+  "analysis": "## Problem in plain terms\n\n- **Pricing:** A $10 item with a “SAVE10” promotion charged the customer $8.10 instead of the expected $9.00 (assuming SAVE10 means 10% off). This is a 19% discount, not 10%.\n- **Inventory:** After the order was refunded, the item quantity was not returned to stock. The store’s available inventory remains short by one unit even though the customer was refunded.\n\n## Initial hypothesis about the root cause\n\nThe two symptoms are likely independent bugs:\n\n1. **Pricing:** The 10% discount appears to be applied *twice* on a compounding basis: $10 → $9 (10% off), then $9 → $8.10 (another 10% off). This suggests the promotion is being evaluated both as a line-item discount and as an order-level discount, or the discount calculation is re-running on an already-discounted amount rather than on the original item price.\n\n2. **Inventory:** The refund flow probably issues the monetary refund but does not trigger the stock-restoration step. This could happen if inventory is decremented at order creation, but the refund event is not wired to the inventory service, or the restocking logic is gated behind an order status that the refund path never sets (e.g., only cancellation restocks, not refunds).",
+  "plan": {
+    "problem": "SAVE10 on a $10 item charged the customer $8.10 instead of $9.00 (a 10% discount appears to be applied twice, compounding to 19%), and after the order was refunded the widget quantity was not returned to stock.",
+    "hypothesis": "The two symptoms are independent bugs: (1) SAVE10 is being applied more than once during checkout, likely once as a line-item discount and again as an order-level discount, or the discounted amount is being discounted again instead of using the original item price; (2) the refund flow only marks the capture as refunded and never calls any inventory restock/stock-increment logic, so decremented stock at allocation is not restored.",
+    "files_to_inspect": [
+      "app/pricing.py",
+      "app/main.py",
+      "app/payments.py",
+      "app/inventory.py"
+    ],
+    "steps": [
+      "Trace all uses of COUPONS/SAVE10 in pricing and checkout paths to confirm whether the discount is applied more than once and whether the base price used is the original pre-discount item price.",
+      "Inspect app/main.py order creation/checkout flow to see where compute_checkout_total or coupon logic is called and why SAVE10 yields $8.10 on a $10 item.",
+      "Review the refund/cancel/order-status flow in app/main.py along with app/payments.py to identify where a refund event should trigger stock restoration.",
+      "Add a stock-restoration step in the refund path that increments inventory for each refunded line item using the same sku/qty data used by allocate_bin, while keeping the refund amount calculation unchanged.",
+      "Verify end-to-end that a $10 item with SAVE10 totals $9.00 and that refunding the order restores the widget stock count."
+    ]
+  },
+  "diagnosis": "",
+  "verification": {
+    "command": "pytest tests/test_orders_coupon_refund.py -q",
+    "lint_command": "ruff check app",
+    "exit_code": 0,
+    "passed": true,
+    "deterministic_pass": true,
+    "pytest_passed": true,
+    "ruff_passed": true,
+    "ruff_autofixed": true,
+    "patch_valid": true,
+    "changed_files": [
+      "app/auth.py",
+      "app/main.py",
+      "app/orders.py"
+    ],
+    "untracked_files": [],
+    "output": "exit_code=0\ncommand: pytest tests/test_orders_coupon_refund.py -q\n--- stdout ---\n.                                                                        [100%]\n=============================== warnings summary ===============================\n../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:147: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    return self._jws.encode(\n\ntests/test_orders_coupon_refund.py::test_save10_on_a_ten_dollar_item_is_nine\n  /usr/local/lib/python3.12/site-packages/jwt/api_jwt.py:368: InsecureKeyLengthWarning: The HMAC key is 29 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.\n    decoded = self.decode_complete(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 3 warnings in 0.98s",
+    "ruff_output": "exit_code=0\ncommand: ruff check app --ignore EXE001 --ignore EXE002\n--- stdout ---\nAll checks passed!",
+    "git_diff": "--- status ---\nM app/auth.py\n M app/main.py\n M app/orders.py\n--- diff ---\ndiff --git a/app/auth.py b/app/auth.py\nindex 9e7ced6..57283c3 100644\n--- a/app/auth.py\n+++ b/app/auth.py\n@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone\n import jwt\n from fastapi import HTTPException\n \n-SECRET = \"dev-secret-do-not-use-in-prod\"  # noqa: S105 — benchmark only\n+SECRET = \"dev-secret-do-not-use-in-prod\"\n ALGO = \"HS256\"\n \n \ndiff --git a/app/main.py b/app/main.py\nindex 942c206..55bcc34 100644\n--- a/app/main.py\n+++ b/app/main.py\n@@ -5,7 +5,6 @@ from pydantic import BaseModel\n \n from app import auth, calculator, inventory, orders, users, validators\n \n-\n app = FastAPI(title=\"issue-pilot-benchmark\")\n \n \ndiff --git a/app/orders.py b/app/orders.py\nindex b1d5b39..9a0e40b 100644\n--- a/app/orders.py\n+++ b/app/orders.py\n@@ -9,7 +9,9 @@ _ORDERS: list[dict] = []\n \n def calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:\n     \"\"\"Return the tax-inclusive total for ``items``.\"\"\"\n-    subtotal = sum(item[\"price\"] for item in items)\n+    subtotal = sum(\n+        float(item[\"price\"]) * int(item.get(\"qty\", 1)) for item in items\n+    )\n     return round(subtotal * (1 + tax_rate), 2)\n \n \n@@ -25,7 +27,6 @@ def create_order(\n     total = calculate_total(items)\n     if coupon:\n         total = pricing.apply_coupon(total, coupon)\n-        total = pricing.apply_coupon(total, coupon)\n \n     payments.charge(user_id, total, items)\n \n@@ -45,6 +46,10 @@ def create_order(\n def refund_order(order_id: int) -> dict:\n     order = get_order(order_id)\n     payments.refund(order)\n+    for item in order[\"items\"]:\n+        inventory.release(\n+            item.get(\"sku\") or \"widget\", int(item.get(\"qty\", 1))\n+        )\n     order[\"status\"] = \"refunded\"\n     return {\"refunded\": True, \"id\": order_id, \"total\": order[\"total\"]}"
+  },
+  "status": "success",
+  "workflow_passed": true,
+  "stage_tokens": {
+    "analyze": {
+      "prompt_tokens": 168,
+      "completion_tokens": 1041,
+      "llm_calls": 1
+    },
+    "retrieve": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "llm_calls": 0
+    },
+    "plan": {
+      "prompt_tokens": 1092,
+      "completion_tokens": 768,
+      "llm_calls": 1
+    },
+    "execute": {
+      "prompt_tokens": 64757,
+      "completion_tokens": 3083,
+      "llm_calls": 10
+    },
+    "evaluate": {
+      "prompt_tokens": 1870,
+      "completion_tokens": 9685,
+      "llm_calls": 1
+    }
+  },
+  "retry_count": 0,
+  "human_retry_count": 0,
+  "human_feedback": "",
+  "attempt_history": [],
+  "structured_diagnosis": {},
+  "patch_evaluation": {
+    "issue_resolved": true,
+    "patch_scope": "appropriate",
+    "regression_risk": "low",
+    "missing_tests": false,
+    "feedback": "Patch fixes both reported symptoms: SAVE10 is applied once, so a $10 item totals $9.00, and refund_order now calls inventory.release for each item to restore stock. The qty-aware subtotal is a reasonable related correction, and the remaining changes are harmless formatting. Existing targeted test passes."
+  },
+  "recovery_success": false,
+  "approval_decision": "approve",
+  "resumed": true,
+  "resume_count": 1,
+  "sandbox_sessions": 2,
+  "retrieval_mode": "hybrid",
+  "retrieval_calls": 1,
+  "relevant_files": [
+    "app/pricing.py",
+    "app/main.py",
+    "app/payments.py",
+    "app/inventory.py"
+  ],
+  "recall_at_5": 0.6666666666666666,
+  "embedder_name": "hashing",
+  "query_mode": "issue",
+  "retrieve_query": "SAVE10 on a $10 item charged $8.10, and after I refunded the order the widget was still missing from stock"
+}

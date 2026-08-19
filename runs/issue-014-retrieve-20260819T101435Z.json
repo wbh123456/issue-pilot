@@ -1,0 +1,180 @@
+{
+  "task_id": "issue-014",
+  "split": "hard",
+  "issue": "The end-of-day sales summary undercounted a line that had more than one unit.",
+  "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+  "expected_files": [
+    "app/reports.py",
+    "app/orders.py",
+    "app/pricing.py"
+  ],
+  "k": 5,
+  "embedder": "FastEmbedEmbedder",
+  "query": "The end-of-day sales summary undercounted a line that had more than one unit.",
+  "query_mode": "issue",
+  "chunk_count": 244,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/ledger.py",
+        "app/shipping.py",
+        "app/settings.py",
+        "app/main.py",
+        "app/webhooks.py"
+      ],
+      "recall_at_k": 0.0,
+      "tokens": [
+        "end",
+        "day",
+        "sales",
+        "summary",
+        "undercounted",
+        "line",
+        "more",
+        "one",
+        "unit"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/pricing.py",
+        "app/calculator.py",
+        "app/main.py",
+        "app/inventory.py",
+        "app/auth.py"
+      ],
+      "recall_at_k": 0.3333333333333333,
+      "chunks": [
+        {
+          "path": "app/pricing.py",
+          "symbol": "quote_price",
+          "type": "function",
+          "start_line": 13,
+          "end_line": 15
+        },
+        {
+          "path": "app/calculator.py",
+          "symbol": "sum_inclusive",
+          "type": "function",
+          "start_line": 6,
+          "end_line": 8
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "calc_sum",
+          "type": "function",
+          "start_line": 107,
+          "end_line": 109
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "get_current_user_id",
+          "type": "function",
+          "start_line": 30,
+          "end_line": 33
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/reports.py",
+        "app/catalog.py",
+        "app/ledger.py",
+        "app/fulfillment.py",
+        "app/audit.py"
+      ],
+      "recall_at_k": 0.3333333333333333,
+      "chunks": [
+        {
+          "path": "app/reports.py",
+          "symbol": "line_amount",
+          "type": "function",
+          "start_line": 24,
+          "end_line": 25
+        },
+        {
+          "path": "app/catalog.py",
+          "symbol": "line_weight",
+          "type": "function",
+          "start_line": 52,
+          "end_line": 58
+        },
+        {
+          "path": "app/ledger.py",
+          "symbol": "last_line",
+          "type": "function",
+          "start_line": 70,
+          "end_line": 73
+        },
+        {
+          "path": "app/fulfillment.py",
+          "symbol": "pending_count",
+          "type": "function",
+          "start_line": 50,
+          "end_line": 51
+        },
+        {
+          "path": "app/audit.py",
+          "symbol": "record_sale",
+          "type": "function",
+          "start_line": 38,
+          "end_line": 39
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/pricing.py",
+        "app/reports.py",
+        "app/inventory.py",
+        "app/ledger.py",
+        "app/audit.py"
+      ],
+      "recall_at_k": 0.6666666666666666,
+      "chunks": [
+        {
+          "path": "app/pricing.py",
+          "symbol": "quote_price",
+          "type": "function",
+          "start_line": 13,
+          "end_line": 15
+        },
+        {
+          "path": "app/reports.py",
+          "symbol": "line_amount",
+          "type": "function",
+          "start_line": 24,
+          "end_line": 25
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "reserve",
+          "type": "function",
+          "start_line": 22,
+          "end_line": 27
+        },
+        {
+          "path": "app/ledger.py",
+          "symbol": "last_line",
+          "type": "function",
+          "start_line": 70,
+          "end_line": 73
+        },
+        {
+          "path": "app/audit.py",
+          "symbol": "open_sales",
+          "type": "function",
+          "start_line": 61,
+          "end_line": 65
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,179 @@
+{
+  "task_id": "issue-012",
+  "split": "hard",
+  "issue": "After I cancelled a purchase, the activity log still listed it as an open sale.",
+  "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+  "expected_files": [
+    "app/orders.py",
+    "app/audit.py"
+  ],
+  "k": 5,
+  "embedder": "HashingEmbedder",
+  "query": "After I cancelled a purchase, the activity log still listed it as an open sale.",
+  "query_mode": "issue",
+  "chunk_count": 244,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/catalog.py",
+        "app/audit.py",
+        "app/main.py",
+        "app/shipping.py",
+        "app/orders.py"
+      ],
+      "recall_at_k": 1.0,
+      "tokens": [
+        "After",
+        "cancelled",
+        "purchase",
+        "activity",
+        "log",
+        "still",
+        "listed",
+        "open",
+        "sale"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/audit.py",
+        "app/payments.py",
+        "app/support.py",
+        "app/auth.py",
+        "app/orders.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/audit.py",
+          "symbol": "ActivityEvent.is_open_sale",
+          "type": "method",
+          "start_line": 25,
+          "end_line": 26
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/support.py",
+          "symbol": "open_tickets",
+          "type": "function",
+          "start_line": 54,
+          "end_line": 55
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "require_admin",
+          "type": "function",
+          "start_line": 36,
+          "end_line": 41
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "create_order",
+          "type": "function",
+          "start_line": 16,
+          "end_line": 43
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/audit.py",
+        "app/main.py",
+        "app/reports.py",
+        "app/tax.py",
+        "app/payments.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/audit.py",
+          "symbol": "ActivityEvent.is_open_sale",
+          "type": "method",
+          "start_line": 25,
+          "end_line": 26
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "CreateOrderBody",
+          "type": "class",
+          "start_line": 31,
+          "end_line": 33
+        },
+        {
+          "path": "app/reports.py",
+          "symbol": "counted_rows",
+          "type": "function",
+          "start_line": 44,
+          "end_line": 45
+        },
+        {
+          "path": "app/tax.py",
+          "symbol": "remote_nexus",
+          "type": "function",
+          "start_line": 30,
+          "end_line": 31
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/audit.py",
+        "app/payments.py",
+        "app/support.py",
+        "app/inventory.py",
+        "app/reports.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/audit.py",
+          "symbol": "ActivityEvent.is_open_sale",
+          "type": "method",
+          "start_line": 25,
+          "end_line": 26
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/support.py",
+          "symbol": "open_tickets",
+          "type": "function",
+          "start_line": 54,
+          "end_line": 55
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        },
+        {
+          "path": "app/reports.py",
+          "symbol": "Snapshot.as_dict",
+          "type": "method",
+          "start_line": 13,
+          "end_line": 14
+        }
+      ]
+    }
+  }
+}

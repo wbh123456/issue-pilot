@@ -1,0 +1,177 @@
+{
+  "task_id": "issue-009",
+  "split": "hard",
+  "issue": "Checkout crashed when I tried to buy more of an item than the warehouse had.",
+  "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+  "expected_files": [
+    "app/inventory.py",
+    "app/orders.py"
+  ],
+  "k": 5,
+  "embedder": "HashingEmbedder",
+  "query": "Checkout crashed when I tried to buy more of an item than the warehouse had.",
+  "query_mode": "issue",
+  "chunk_count": 244,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/campaigns.py",
+        "app/reports.py",
+        "app/orders.py",
+        "app/catalog.py",
+        "app/shipping.py"
+      ],
+      "recall_at_k": 0.5,
+      "tokens": [
+        "Checkout",
+        "crashed",
+        "tried",
+        "buy",
+        "more",
+        "item",
+        "warehouse"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/pricing.py",
+        "app/inventory.py",
+        "app/auth.py",
+        "app/notifications.py",
+        "app/orders.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/pricing.py",
+          "symbol": "compute_checkout_total",
+          "type": "function",
+          "start_line": 29,
+          "end_line": 37
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "require_admin",
+          "type": "function",
+          "start_line": 36,
+          "end_line": 41
+        },
+        {
+          "path": "app/notifications.py",
+          "symbol": "Message",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 22
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "calculate_total",
+          "type": "function",
+          "start_line": 10,
+          "end_line": 13
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/users.py",
+        "app/notifications.py",
+        "app/main.py",
+        "app/settings.py",
+        "app/inventory.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/users.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 63,
+          "end_line": 69
+        },
+        {
+          "path": "app/notifications.py",
+          "symbol": "Message",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 22
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "OrderItem",
+          "type": "class",
+          "start_line": 25,
+          "end_line": 28
+        },
+        {
+          "path": "app/settings.py",
+          "symbol": "mail_from",
+          "type": "function",
+          "start_line": 69,
+          "end_line": 70
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/notifications.py",
+        "app/inventory.py",
+        "app/main.py",
+        "app/users.py",
+        "app/webhooks.py"
+      ],
+      "recall_at_k": 0.5,
+      "chunks": [
+        {
+          "path": "app/notifications.py",
+          "symbol": "Message",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 22
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "OrderItem",
+          "type": "class",
+          "start_line": 25,
+          "end_line": 28
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 63,
+          "end_line": 69
+        },
+        {
+          "path": "app/webhooks.py",
+          "symbol": "register_endpoint",
+          "type": "function",
+          "start_line": 44,
+          "end_line": 47
+        }
+      ]
+    }
+  }
+}

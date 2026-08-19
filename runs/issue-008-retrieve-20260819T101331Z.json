@@ -1,0 +1,173 @@
+{
+  "task_id": "issue-008",
+  "split": "hard",
+  "issue": "I submitted the same checkout twice and got two receipts.",
+  "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+  "expected_files": [
+    "app/orders.py"
+  ],
+  "k": 5,
+  "embedder": "HashingEmbedder",
+  "query": "I submitted the same checkout twice and got two receipts.",
+  "query_mode": "issue",
+  "chunk_count": 244,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/pricing.py",
+        "app/settings.py"
+      ],
+      "recall_at_k": 0.0,
+      "tokens": [
+        "submitted",
+        "same",
+        "checkout",
+        "twice",
+        "got",
+        "two",
+        "receipts"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/pricing.py",
+        "app/loyalty.py",
+        "app/settings.py",
+        "app/main.py",
+        "app/auth.py"
+      ],
+      "recall_at_k": 0.0,
+      "chunks": [
+        {
+          "path": "app/pricing.py",
+          "symbol": "pricing",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 10
+        },
+        {
+          "path": "app/loyalty.py",
+          "symbol": "loyalty",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 23
+        },
+        {
+          "path": "app/settings.py",
+          "symbol": "mail_from",
+          "type": "function",
+          "start_line": 69,
+          "end_line": 70
+        },
+        {
+          "path": "app/main.py",
+          "symbol": "create_order_endpoint",
+          "type": "function",
+          "start_line": 73,
+          "end_line": 87
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "require_admin",
+          "type": "function",
+          "start_line": 36,
+          "end_line": 41
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/main.py",
+        "app/users.py",
+        "app/orders.py",
+        "app/campaigns.py",
+        "app/audit.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/main.py",
+          "symbol": "EmailBody",
+          "type": "class",
+          "start_line": 36,
+          "end_line": 37
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "change_email",
+          "type": "function",
+          "start_line": 44,
+          "end_line": 54
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 79,
+          "end_line": 110
+        },
+        {
+          "path": "app/campaigns.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 63,
+          "end_line": 66
+        },
+        {
+          "path": "app/audit.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 72,
+          "end_line": 73
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/pricing.py",
+        "app/users.py",
+        "app/orders.py",
+        "app/settings.py",
+        "app/campaigns.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/pricing.py",
+          "symbol": "pricing",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 10
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 63,
+          "end_line": 69
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 79,
+          "end_line": 110
+        },
+        {
+          "path": "app/settings.py",
+          "symbol": "mail_from",
+          "type": "function",
+          "start_line": 69,
+          "end_line": 70
+        },
+        {
+          "path": "app/campaigns.py",
+          "symbol": "campaigns",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 24
+        }
+      ]
+    }
+  }
+}
