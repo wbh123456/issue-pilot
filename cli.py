@@ -10,6 +10,7 @@ Usage:
     python cli.py retrieve issue-009
     python cli.py retrieve --split hard
     python cli.py report --split hard
+    python cli.py report --split hard --latest-per-cell
     python cli.py sandbox doctor
     python cli.py sandbox build
     python cli.py solve issue-001 --harness v1 --interactive-recovery
@@ -223,6 +224,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--model",
         default=None,
         help="Keep only solve records with this model id",
+    )
+    report.add_argument(
+        "--latest-per-cell",
+        action="store_true",
+        help="Keep only the newest solve per (task, harness) cell before aggregating",
     )
     report.add_argument(
         "--json",
@@ -455,16 +461,20 @@ def _print_report(report: dict) -> None:
     if filters.get("base_commit"):
         title_bits.append(str(filters["base_commit"])[:12])
     for cohort in report.get("solve_cohorts") or []:
+        spec = str(cohort.get("benchmark_spec_sha") or "-")
         heading = (
             f"{cohort.get('base_commit') or '-'}  "
             f"model={cohort.get('model') or '-'}  "
             f"T={cohort.get('temperature')}  "
             f"image={cohort.get('sandbox_image') or '-'}  "
-            f"n={cohort.get('n')}"
+            f"spec={spec[:12]}  "
+            f"n={cohort.get('n')}  "
+            f"cells={cohort.get('n_cells')}"
         )
         table = Table(title=heading)
         table.add_column("Harness")
         table.add_column("n", justify="right")
+        table.add_column("cells", justify="right")
         table.add_column("Resolve", justify="right")
         table.add_column("Tokens", justify="right")
         table.add_column("Reads", justify="right")
@@ -477,6 +487,7 @@ def _print_report(report: dict) -> None:
             table.add_row(
                 str(row.get("harness_version")),
                 str(row.get("n")),
+                str(row.get("n_cells") if row.get("n_cells") is not None else "-"),
                 f"{float(row.get('resolve_rate') or 0):.2f}",
                 f"{float(row.get('tokens') or 0):.0f}",
                 f"{float(row.get('file_reads') or 0):.1f}",
@@ -690,6 +701,7 @@ def main(argv: list[str] | None = None) -> int:
             split=args.split,
             base_commit=args.base_commit,
             model=args.model,
+            latest_per_cell=args.latest_per_cell,
         )
         if args.json:
             console.print_json(json.dumps(report))

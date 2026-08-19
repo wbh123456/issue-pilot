@@ -1009,11 +1009,20 @@ class TestCLI:
 
         monkeypatch.setattr("eval.report.build_report", fake_report)
         code = cli.main(
-            ["report", "--split", "hard", "--base-commit", "deadbeef", "--json"]
+            [
+                "report",
+                "--split",
+                "hard",
+                "--base-commit",
+                "deadbeef",
+                "--latest-per-cell",
+                "--json",
+            ]
         )
         assert code == 0
         assert seen["split"] == "hard"
         assert seen["base_commit"] == "deadbeef"
+        assert seen["latest_per_cell"] is True
 
     def test_sandbox_doctor_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class Report:

@@ -98,12 +98,36 @@ class TestCohortSummary:
         )
         by_h = {row["harness_version"]: row for row in rows}
         assert by_h["v0"]["n"] == 2
+        assert by_h["v0"]["n_cells"] == 2
         assert by_h["v0"]["resolve_rate"] == 0.5
         assert by_h["v0"]["tokens"] == 20.0
         assert by_h["v1"]["n"] == 1
+        assert by_h["v1"]["n_cells"] == 1
         assert by_h["v1"]["resolve_rate"] == 1.0
         assert by_h["v0"]["recovery_rate"] == 0.0
         assert by_h["v0"]["human_retries"] == 0.0
+        assert {cell["task_id"] for cell in by_h["v0"]["cells"]} == {
+            "issue-008",
+            "issue-009",
+        }
+
+    def test_averages_cells_not_raw_runs(self) -> None:
+        rows = summarize_solve_cohort(
+            [
+                _solve(task_id="issue-001", harness="v1", success=True, tokens=10),
+                _solve(task_id="issue-001", harness="v1", success=True, tokens=90),
+                _solve(task_id="issue-002", harness="v1", success=False, tokens=100),
+            ]
+        )
+        row = rows[0]
+        assert row["n"] == 3
+        assert row["n_cells"] == 2
+        assert row["resolve_rate"] == 0.5
+        assert row["tokens"] == 75.0
+        by_task = {cell["task_id"]: cell for cell in row["cells"]}
+        assert by_task["issue-001"]["tokens"] == 50.0
+        assert by_task["issue-001"]["n"] == 2
+        assert by_task["issue-002"]["tokens"] == 100.0
 
     def test_recovery_rate_and_human_retries(self) -> None:
         rows = summarize_solve_cohort(
@@ -223,3 +247,79 @@ class TestBuildReport:
         report = build_report(runs_dir=tmp_path)
         assert report["solve_cohorts"][0]["n"] == 1
         assert report["solve_cohorts"][0]["harnesses"][0]["resolve_rate"] == 1.0
+
+    def test_splits_cohorts_on_benchmark_spec_sha(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "old-spec.json",
+            _solve(
+                task_id="issue-009",
+                harness="v1",
+                success=True,
+                tokens=10,
+            )
+            | {"benchmark_spec_sha": "aaa"},
+        )
+        _write(
+            tmp_path,
+            "new-spec.json",
+            _solve(
+                task_id="issue-009",
+                harness="v1",
+                success=False,
+                tokens=90,
+            )
+            | {"benchmark_spec_sha": "bbb"},
+        )
+        report = build_report(runs_dir=tmp_path)
+        assert len(report["solve_cohorts"]) == 2
+        shas = {c["benchmark_spec_sha"] for c in report["solve_cohorts"]}
+        assert shas == {"aaa", "bbb"}
+        for cohort in report["solve_cohorts"]:
+            assert cohort["n"] == 1
+            assert cohort["n_cells"] == 1
+
+    def test_latest_per_cell_drops_older_duplicate(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "issue-001-v1-20260101T000000Z.json",
+            _solve(task_id="issue-001", harness="v1", success=False, tokens=10),
+        )
+        _write(
+            tmp_path,
+            "issue-001-v1-20260801T120000Z.json",
+            _solve(task_id="issue-001", harness="v1", success=True, tokens=90),
+        )
+        mixed = build_report(runs_dir=tmp_path)
+        assert mixed["solve_cohorts"][0]["n"] == 2
+        assert mixed["solve_cohorts"][0]["harnesses"][0]["n_cells"] == 1
+        assert mixed["solve_cohorts"][0]["harnesses"][0]["tokens"] == 50.0
+
+        latest = build_report(runs_dir=tmp_path, latest_per_cell=True)
+        row = latest["solve_cohorts"][0]["harnesses"][0]
+        assert latest["filters"]["latest_per_cell"] is True
+        assert latest["solve_cohorts"][0]["n"] == 1
+        assert row["n"] == 1
+        assert row["n_cells"] == 1
+        assert row["tokens"] == 90.0
+        assert row["resolve_rate"] == 1.0
+
+    def test_skips_matrix_manifests(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "ok.json",
+            _solve(task_id="issue-009", harness="v1", success=True),
+        )
+        _write(
+            tmp_path,
+            "matrix-20260819T000000Z.json",
+            {
+                "stamp": "20260819T000000Z",
+                "cells": [],
+                "harness_version": "v0",
+                "success": False,
+            },
+        )
+        records = load_run_files(tmp_path)
+        assert len(records) == 1
+        assert records[0]["task_id"] == "issue-009"
