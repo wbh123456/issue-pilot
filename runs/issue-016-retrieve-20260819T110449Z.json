@@ -1,0 +1,170 @@
+{
+  "task_id": "issue-016",
+  "split": "ablation",
+  "issue": "AfterHours checkout never sends a confirmation.",
+  "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+  "expected_files": [
+    "app/notifications.py"
+  ],
+  "k": 5,
+  "embedder": "HashingEmbedder",
+  "query": "AfterHours checkout never sends a confirmation.",
+  "query_mode": "issue",
+  "chunk_count": 248,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/pricing.py"
+      ],
+      "recall_at_k": 0.0,
+      "tokens": [
+        "AfterHours",
+        "checkout",
+        "never",
+        "sends",
+        "confirmation"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/notifications.py",
+        "app/pricing.py",
+        "app/payments.py",
+        "app/loyalty.py",
+        "app/settings.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/notifications.py",
+          "symbol": "after_hours_gate",
+          "type": "function",
+          "start_line": 76,
+          "end_line": 77
+        },
+        {
+          "path": "app/pricing.py",
+          "symbol": "pricing",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 10
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/loyalty.py",
+          "symbol": "loyalty",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 23
+        },
+        {
+          "path": "app/settings.py",
+          "symbol": "settings",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 38
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/shipping.py",
+        "app/notifications.py",
+        "app/catalog.py",
+        "app/fulfillment.py",
+        "app/tax.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/shipping.py",
+          "symbol": "can_ship",
+          "type": "function",
+          "start_line": 52,
+          "end_line": 53
+        },
+        {
+          "path": "app/notifications.py",
+          "symbol": "after_hours_gate",
+          "type": "function",
+          "start_line": 76,
+          "end_line": 77
+        },
+        {
+          "path": "app/catalog.py",
+          "symbol": "describe_items",
+          "type": "function",
+          "start_line": 62,
+          "end_line": 63
+        },
+        {
+          "path": "app/fulfillment.py",
+          "symbol": "postage_for",
+          "type": "function",
+          "start_line": 54,
+          "end_line": 55
+        },
+        {
+          "path": "app/tax.py",
+          "symbol": "remote_nexus",
+          "type": "function",
+          "start_line": 30,
+          "end_line": 31
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/notifications.py",
+        "app/pricing.py",
+        "app/payments.py",
+        "app/inventory.py",
+        "app/orders.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/notifications.py",
+          "symbol": "after_hours_gate",
+          "type": "function",
+          "start_line": 76,
+          "end_line": 77
+        },
+        {
+          "path": "app/pricing.py",
+          "symbol": "pricing",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 10
+        },
+        {
+          "path": "app/payments.py",
+          "symbol": "payments",
+          "type": "module",
+          "start_line": 1,
+          "end_line": 8
+        },
+        {
+          "path": "app/inventory.py",
+          "symbol": "allocate_bin",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 44
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "create_order",
+          "type": "function",
+          "start_line": 16,
+          "end_line": 43
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,179 @@
+{
+  "task_id": "issue-015",
+  "split": "ablation",
+  "issue": "AwayLevy for shoppers who live outside the shop still matches the in-store figure.",
+  "base_commit": "a6f0c2b5452792a5850c7f4f4fd0533bcf4443e4",
+  "expected_files": [
+    "app/tax.py"
+  ],
+  "k": 5,
+  "embedder": "HashingEmbedder",
+  "query": "AwayLevy for shoppers who live outside the shop still matches the in-store figure.",
+  "query_mode": "issue",
+  "chunk_count": 248,
+  "modes": {
+    "grep": {
+      "retrieved_files": [
+        "app/orders.py",
+        "app/audit.py",
+        "app/webhooks.py",
+        "app/users.py",
+        "app/campaigns.py"
+      ],
+      "recall_at_k": 0.0,
+      "tokens": [
+        "AwayLevy",
+        "shoppers",
+        "who",
+        "live",
+        "outside",
+        "shop",
+        "still",
+        "matches",
+        "store",
+        "figure"
+      ]
+    },
+    "bm25": {
+      "retrieved_files": [
+        "app/tax.py",
+        "app/users.py",
+        "app/audit.py",
+        "app/orders.py",
+        "app/auth.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/tax.py",
+          "symbol": "away_levy",
+          "type": "function",
+          "start_line": 45,
+          "end_line": 46
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 63,
+          "end_line": 69
+        },
+        {
+          "path": "app/audit.py",
+          "symbol": "latest_for_order",
+          "type": "function",
+          "start_line": 54,
+          "end_line": 58
+        },
+        {
+          "path": "app/orders.py",
+          "symbol": "calculate_total",
+          "type": "function",
+          "start_line": 10,
+          "end_line": 13
+        },
+        {
+          "path": "app/auth.py",
+          "symbol": "require_admin",
+          "type": "function",
+          "start_line": 36,
+          "end_line": 41
+        }
+      ]
+    },
+    "dense": {
+      "retrieved_files": [
+        "app/main.py",
+        "app/campaigns.py",
+        "app/reports.py",
+        "app/shipping.py",
+        "app/webhooks.py"
+      ],
+      "recall_at_k": 0.0,
+      "chunks": [
+        {
+          "path": "app/main.py",
+          "symbol": "LoginBody",
+          "type": "class",
+          "start_line": 20,
+          "end_line": 22
+        },
+        {
+          "path": "app/campaigns.py",
+          "symbol": "Campaign",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 18
+        },
+        {
+          "path": "app/reports.py",
+          "symbol": "Snapshot",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 17
+        },
+        {
+          "path": "app/shipping.py",
+          "symbol": "Address",
+          "type": "class",
+          "start_line": 8,
+          "end_line": 17
+        },
+        {
+          "path": "app/webhooks.py",
+          "symbol": "Endpoint",
+          "type": "class",
+          "start_line": 12,
+          "end_line": 22
+        }
+      ]
+    },
+    "hybrid": {
+      "retrieved_files": [
+        "app/tax.py",
+        "app/campaigns.py",
+        "app/users.py",
+        "app/webhooks.py",
+        "app/audit.py"
+      ],
+      "recall_at_k": 1.0,
+      "chunks": [
+        {
+          "path": "app/tax.py",
+          "symbol": "away_levy",
+          "type": "function",
+          "start_line": 45,
+          "end_line": 46
+        },
+        {
+          "path": "app/campaigns.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 63,
+          "end_line": 66
+        },
+        {
+          "path": "app/users.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 63,
+          "end_line": 69
+        },
+        {
+          "path": "app/webhooks.py",
+          "symbol": "reset_store",
+          "type": "function",
+          "start_line": 76,
+          "end_line": 79
+        },
+        {
+          "path": "app/audit.py",
+          "symbol": "latest_for_order",
+          "type": "function",
+          "start_line": 54,
+          "end_line": 58
+        }
+      ]
+    }
+  }
+}
